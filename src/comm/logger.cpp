@@ -28,7 +28,7 @@ namespace phxpaxos
 {
 
 Logger :: Logger()
-    : m_pLogFunc(nullptr)
+    : m_pLogFunc(nullptr), m_eLogLevel(LogLevel::LogLevel_None)
 {
 }
 
@@ -75,6 +75,33 @@ void Logger :: LogError(const char * pcFormat, ...)
     va_list args;
     va_start(args, pcFormat);
     vsnprintf(sBuf, sizeof(sBuf), newFormat.c_str(), args);
+    va_end(args);
+
+    m_oMutex.lock();
+    printf("%s\n", sBuf);
+    m_oMutex.unlock();
+}
+
+void Logger :: LogStatus(const char * pcFormat, ...)
+{
+    if (m_pLogFunc != nullptr)
+    {
+        va_list args;
+        va_start(args, pcFormat);
+        m_pLogFunc(static_cast<int>(LogLevel::LogLevel_Error), pcFormat, args);
+        va_end(args);
+        return;
+    }
+
+    if (m_eLogLevel < LogLevel::LogLevel_Error)
+    {
+        return;
+    }
+
+    char sBuf[1024] = {0};
+    va_list args;
+    va_start(args, pcFormat);
+    vsnprintf(sBuf, sizeof(sBuf), pcFormat, args);
     va_end(args);
 
     m_oMutex.lock();
@@ -162,7 +189,7 @@ void Logger :: LogVerbose(const char * pcFormat, ...)
     char sBuf[1024] = {0};
     va_list args;
     va_start(args, pcFormat);
-    vsnprintf(sBuf, sizeof(sBuf), pcFormat, args);
+    vsnprintf(sBuf, sizeof(sBuf), newFormat.c_str(), args);
     va_end(args);
 
     m_oMutex.lock();
@@ -171,4 +198,5 @@ void Logger :: LogVerbose(const char * pcFormat, ...)
 }
 
 }
+
 

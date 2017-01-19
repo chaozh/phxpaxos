@@ -36,18 +36,26 @@ namespace phxpaxos
 {
 
 UDPRecv :: UDPRecv(DFNetWork * poDFNetWork) 
-    : m_poDFNetWork(poDFNetWork), m_iSockFD(-1), m_bIsEnd(false)
+    : m_poDFNetWork(poDFNetWork), m_iSockFD(-1), m_bIsEnd(false), m_bIsStarted(false)
 {
 }
 
 UDPRecv :: ~UDPRecv()
 {
+    if (m_iSockFD != -1)
+    {
+        close(m_iSockFD);
+        m_iSockFD = -1;
+    }
 }
 
 void UDPRecv :: Stop()
 {
-    m_bIsEnd = true;
-    join();
+    if (m_bIsStarted)
+    {
+        m_bIsEnd = true;
+        join();
+    }
 }
 
 int UDPRecv :: Init(const int iPort)
@@ -64,6 +72,9 @@ int UDPRecv :: Init(const int iPort)
     addr.sin_port = htons(iPort);
     addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
+    int enable = 1;
+    setsockopt(m_iSockFD, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int));
+
     if (bind(m_iSockFD, (struct sockaddr *)&addr, sizeof(addr)) < 0) 
     {
         return -1;
@@ -74,6 +85,8 @@ int UDPRecv :: Init(const int iPort)
 
 void UDPRecv :: run()
 {
+    m_bIsStarted = true;
+
     char sBuffer[65536] = {0};
 
     struct sockaddr_in addr;
@@ -117,7 +130,7 @@ void UDPRecv :: run()
 
 //////////////////////////////////////////////
 
-UDPSend :: UDPSend() : m_iSockFD(-1), m_bIsEnd(false)
+UDPSend :: UDPSend() : m_iSockFD(-1), m_bIsEnd(false), m_bIsStarted(false)
 {
 }
 
@@ -143,8 +156,11 @@ int UDPSend :: Init()
 
 void UDPSend :: Stop()
 {
-    m_bIsEnd = true;
-    join();
+    if (m_bIsStarted)
+    {
+        m_bIsEnd = true;
+        join();
+    }
 }
 
 void UDPSend :: SendMessage(const std::string & sIP, const int iPort, const std::string & sMessage)
@@ -157,13 +173,17 @@ void UDPSend :: SendMessage(const std::string & sIP, const int iPort, const std:
     addr.sin_port = htons(iPort);
     addr.sin_addr.s_addr = inet_addr(sIP.c_str());
     
-    sendto(m_iSockFD, sMessage.data(), (int)sMessage.size(), 0, (struct sockaddr *)&addr, addr_len);
-
-    BP->GetNetworkBP()->UDPRealSend(sMessage);
+    int ret = sendto(m_iSockFD, sMessage.data(), (int)sMessage.size(), 0, (struct sockaddr *)&addr, addr_len);
+    if (ret > 0)
+    {
+        BP->GetNetworkBP()->UDPRealSend(sMessage);
+    }
 }
 
 void UDPSend :: run()
 {
+    m_bIsStarted = true;
+
     while(true)
     {
         QueueData * poData = nullptr;
@@ -199,7 +219,7 @@ int UDPSend :: AddMessage(const std::string & sIP, const int iPort, const std::s
     if ((int)m_oSendQueue.size() > UDP_QUEUE_MAXLEN)
     {
         BP->GetNetworkBP()->UDPQueueFull();
-        PLErr("queue length %d too long, can't enqueue", m_oSendQueue.size());
+        //PLErr("queue length %d too long, can't enqueue", m_oSendQueue.size());
 
         m_oSendQueue.unlock();
 
@@ -218,4 +238,5 @@ int UDPSend :: AddMessage(const std::string & sIP, const int iPort, const std::s
 }
     
 }
+
 

@@ -25,6 +25,8 @@ See the AUTHORS file for names of contributors.
 #include "phxpaxos/options.h"
 #include <typeinfo>
 #include <inttypes.h>
+#include <map>
+#include <vector>
 
 namespace phxpaxos
 {
@@ -52,6 +54,24 @@ public:
 
     virtual const nodeid_t GetMyNodeID() const = 0;
 
+    //Batch propose.
+    
+    //Only set options::bUserBatchPropose as true can use this batch API.
+    //Warning: BatchProposal will have same llInstanceID returned but different iBatchIndex.
+    //Batch values's execute order in StateMachine is certain, the return value iBatchIndex
+    //means the execute order index, start from 0.
+    virtual int BatchPropose(const int iGroupIdx, const std::string & sValue, 
+            uint64_t & llInstanceID, uint32_t & iBatchIndex) = 0;
+
+    virtual int BatchPropose(const int iGroupIdx, const std::string & sValue, uint64_t & llInstanceID, 
+            uint32_t & iBatchIndex, SMCtx * poSMCtx) = 0;
+
+    //PhxPaxos will batch proposal while waiting proposals count reach to BatchCount, 
+    //or wait time reach to BatchDelayTimeMs.
+    virtual void SetBatchCount(const int iGroupIdx, const int iBatchCount) = 0;
+
+    virtual void SetBatchDelayTimeMs(const int iGroupIdx, const int iBatchDelayTimeMs) = 0;
+
     //State machine.
     
     //This function will add state machine to all group.
@@ -66,6 +86,7 @@ public:
     
     //Set the number you want to keep paxoslog's count.
     //We will only delete paxoslog before checkpoint instanceid.
+    //If llHoldCount < 300, we will set it to 300. Not suggest too small holdcount.
     virtual void SetHoldPaxosLogCount(const uint64_t llHoldCount) = 0;
 
     //Replayer is to help sm make checkpoint.
@@ -79,7 +100,7 @@ public:
     virtual void ContinueCheckpointReplayer() = 0;
 
     //Paxos log cleaner working for deleting paxoslog before checkpoint instanceid.
-    //Paxos log cleaner default is running.
+    //Paxos log cleaner default is pausing.
     
     //pause paxos log cleaner.
     virtual void PausePaxosLogCleaner() = 0;
@@ -87,10 +108,27 @@ public:
     //Continue to run paxos log cleaner.
     virtual void ContinuePaxosLogCleaner() = 0;
 
+    //Membership
+    
+    //Show now membership.
+    virtual int ShowMembership(const int iGroupIdx, NodeInfoList & vecNodeInfoList) = 0;
+    
+    //Add a paxos node to membership.
+    virtual int AddMember(const int iGroupIdx, const NodeInfo & oNode) = 0;
+
+    //Remove a paxos node from membership.
+    virtual int RemoveMember(const int iGroupIdx, const NodeInfo & oNode) = 0;
+
+    //Change membership by one node to another node.
+    virtual int ChangeMember(const int iGroupIdx, const NodeInfo & oFromNode, const NodeInfo & oToNode) = 0;
+
     //Master
     
     //Check who is master.
     virtual const NodeInfo GetMaster(const int iGroupIdx) = 0;
+
+    //Check who is master and get version.
+    virtual const NodeInfo GetMasterWithVersion(const int iGroupIdx, uint64_t & llVersion) = 0;
     
     //Check is i'm master.
     virtual const bool IsIMMaster(const int iGroupIdx) = 0;
@@ -98,6 +136,25 @@ public:
     virtual int SetMasterLease(const int iGroupIdx, const int iLeaseTimeMs) = 0;
 
     virtual int DropMaster(const int iGroupIdx) = 0;
+
+    //Qos
+
+    //If many threads propose same group, that some threads will be on waiting status.
+    //Set max hold threads, and we will reject some propose request to avoid to many threads be holded.
+    //Reject propose request will get retcode(PaxosTryCommitRet_TooManyThreadWaiting_Reject), check on def.h.
+    virtual void SetMaxHoldThreads(const int iGroupIdx, const int iMaxHoldThreads) = 0;
+
+    //To avoid threads be holded too long time, we use this threshold to reject some propose to control thread's wait time.
+    virtual void SetProposeWaitTimeThresholdMS(const int iGroupIdx, const int iWaitTimeThresholdMS) = 0;
+
+    //write disk
+    virtual void SetLogSync(const int iGroupIdx, const bool bLogSync) = 0;
+
+    //Not suggest to use this function
+    //pair: value,smid.
+    //Because of BatchPropose, a InstanceID maybe include multi-value.
+    virtual int GetInstanceValue(const int iGroupIdx, const uint64_t llInstanceID, 
+            std::vector<std::pair<std::string, int> > & vecValues) = 0;
 
 protected:
     friend class NetWork; 

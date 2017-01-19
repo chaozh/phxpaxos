@@ -45,16 +45,20 @@ public:
             const Config * poConfig, 
             const LogStorage * poLogStorage,
             const MsgTransport * poMsgTransport,
-            const bool bUseCheckpointReplayer);
+            const Options & oOptions);
     ~Instance();
 
     int Init();
+
+    void Start();
 
     int InitLastCheckSum();
 
     const uint64_t GetNowInstanceID();
 
     const uint32_t GetLastChecksum();
+
+    int GetInstanceValue(const uint64_t llInstanceID, std::string & sValue, int & iSMID);
 
 public:
     Committer * GetCommitter();
@@ -77,11 +81,11 @@ public:
     
     void OnReceiveCheckpointMsg(const CheckpointMsg & oCheckpointMsg);
 
-    int OnReceivePaxosMsg(const PaxosMsg & oPaxosMsg);
+    int OnReceivePaxosMsg(const PaxosMsg & oPaxosMsg, const bool bIsRetry = false);
     
     int ReceiveMsgForProposer(const PaxosMsg & oPaxosMsg);
     
-    int ReceiveMsgForAcceptor(const PaxosMsg & oPaxosMsg);
+    int ReceiveMsgForAcceptor(const PaxosMsg & oPaxosMsg, const bool bIsRetry);
     
     int ReceiveMsgForLearner(const PaxosMsg & oPaxosMsg);
 
@@ -95,7 +99,6 @@ public:
         const uint64_t llInstanceID, 
         const std::string & sValue, 
         const bool bIsMyCommit,
-        StateMachine * poSM,
         SMCtx * poSMCtx);
 
 private:
@@ -105,12 +108,16 @@ private:
 
     bool ReceiveMsgHeaderCheck(const Header & oHeader, const nodeid_t iFromNodeID);
 
+    int ProtectionLogic_IsCheckpointInstanceIDCorrect(const uint64_t llCPInstanceID, const uint64_t llLogMaxInstanceID);
+
 private:
     void NewInstance();
 
 private:
     Config * m_poConfig;
     MsgTransport * m_poMsgTransport;
+
+    SMFac m_oSMFac;
 
     IOLoop m_oIOLoop;
 
@@ -129,12 +136,11 @@ private:
     Committer m_oCommitter;
 
 private:
-    SMFac m_oSMFac;
-
     CheckpointMgr m_oCheckpointMgr;
 
 private:
     TimeStat m_oTimeStat;
+    Options m_oOptions;
 };
     
 }

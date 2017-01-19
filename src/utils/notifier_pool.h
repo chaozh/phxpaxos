@@ -21,51 +21,41 @@ See the AUTHORS file for names of contributors.
 
 #pragma once
 
-#include "commdef.h"
-#include "utils_include.h"
-#include "phxpaxos/node.h"
-#include "master_sm.h"
+#include <map>
+#include <mutex>
 
-namespace phxpaxos 
+namespace phxpaxos
 {
 
-class MasterDamon : public Thread
+class Notifier
 {
 public:
-    MasterDamon(const Node * poPaxosNode, const int iGroupIdx, const LogStorage * poLogStorage);
-    ~MasterDamon();
-
-    void RunMaster();
-    
-    void StopMaster();
+    Notifier();
+    ~Notifier();
 
     int Init();
 
-    void run();
+    void SendNotify(const int ret);
 
-    void SetLeaseTime(const int iLeaseTimeMs);
-
-    void TryBeMaster(const int iLeaseTime);
-
-    void DropMaster();
-
-public:
-    MasterStateMachine * GetMasterSM();
+    void WaitNotify(int & ret);
 
 private:
-    Node * m_poPaxosNode;
-
-    MasterStateMachine m_oDefaultMasterSM;
-
-private:
-    int m_iLeaseTime;
-
-    bool m_bIsEnd;
-    bool m_bIsStarted;
-
-    int m_iMyGroupIdx;
-
-    bool m_bNeedDropMaster;
+    int m_iPipeFD[2];
 };
-    
+
+/////////////////////////////////
+
+class NotifierPool
+{
+public:
+    NotifierPool();
+    ~NotifierPool();
+
+    int GetNotifier(const uint64_t iID, Notifier *& poNotifier);
+
+private:
+    std::map<uint64_t, Notifier *> m_mapPool;
+    std::mutex m_oMutex;
+};
+
 }

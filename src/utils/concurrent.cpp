@@ -23,6 +23,7 @@ See the AUTHORS file for names of contributors.
 #include <iostream>
 #include <stdlib.h>
 #include <unistd.h>
+#include <time.h>
 
 static void* mmThreadRun(void* p) {
     phxpaxos::Thread* thread = (phxpaxos::Thread*)p;
@@ -31,95 +32,6 @@ static void* mmThreadRun(void* p) {
 }
 
 namespace phxpaxos {
-
-////////////////////////////////////////////////////////////////Mutex
-
-Mutex::Mutex() {
-    if (pthread_mutex_init(&_pm, 0)) {
-        throw SyncException(errno, "pthread_mutex_init error");
-    }
-}
-
-Mutex::~Mutex() {
-    pthread_mutex_destroy(&_pm);
-}
-
-void Mutex::lock() {
-    int ret = pthread_mutex_lock(&_pm);
-    if (ret) {
-        throw SyncException(ret, "pthread_mutex_lock error");
-    }
-}
-
-bool Mutex::tryLock() {
-    int ret = pthread_mutex_trylock(&_pm);
-    if (ret) {
-        if (ret == EBUSY) {
-            return false;
-        }
-        throw SyncException(ret, "pthread_mutex_trylock error");
-    }
-    return true;
-}
-
-void Mutex::unlock() {
-    int ret = pthread_mutex_unlock(&_pm);
-    if (ret) {
-        throw SyncException(ret, "pthread_mutex_unlock error");
-    }
-}
-
-///////////////////////////////////////////////////////////Condition
-
-Condition::Condition(Mutex& mutex) : _mutex(mutex) {
-    if (pthread_cond_init(&_pc, 0)) {
-        throw SyncException(errno, "pthread_cond_init error");
-    }
-}
-
-Condition::~Condition() {
-    pthread_cond_destroy(&_pc);
-}
-
-void Condition::signal() {
-    if (pthread_cond_signal(&_pc)) {
-        throw SyncException(errno, "pthread_cond_signal error");
-    }
-}
-
-void Condition::broadcast() {
-    if (pthread_cond_broadcast(&_pc)) {
-        throw SyncException(errno, "pthread_cond_broadcast error");
-    }
-}
-
-void Condition::wait() {
-    if (pthread_cond_wait(&_pc, &_mutex._pm)) {
-        throw SyncException(errno, "pthread_cond_wait error");
-    }
-}
-
-bool Condition::tryWait(int ms) {
-    uint64_t timeout = phxpaxos::now() + ms;
-
-    timespec t;
-    t.tv_sec = (time_t)(timeout / 1000);
-    t.tv_nsec = (timeout % 1000) * 1000000;
-
-    return tryWait(&t);
-}
-
-bool Condition::tryWait(const timespec* timeout) {
-    int ret = pthread_cond_timedwait(&_pc, &_mutex._pm, timeout);
-    if (ret) {
-        if (ret == ETIMEDOUT) {
-            return false;
-        }
-        throw SyncException(errno, "pthread_cond_timedwait error");
-    }
-    return true;
-}
-
 
 ///////////////////////////////////////////////////////////ThreadAttr
 
@@ -217,4 +129,5 @@ void Thread::sleep(int ms) {
 }
 
 } 
+
 

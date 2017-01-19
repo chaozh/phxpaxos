@@ -420,9 +420,17 @@ void MonCommiterBP :: NewValueGetLockTimeout()
     m_pIDKeyOssFunc(m_oMonitorConfig.iOssAttrID, 63, 1);
 }
 
+void MonCommiterBP :: NewValueGetLockReject()
+{
+    m_pIDKeyOssFunc(m_oMonitorConfig.iOssAttrID, 109, 1);
+}
+
 void MonCommiterBP :: NewValueGetLockOK(const int iUseTimeMs)
 {
     m_pIDKeyOssFunc(m_oMonitorConfig.iOssAttrID, 64, 1);
+
+    m_pIDKeyOssFunc(m_oMonitorConfig.iUseTimeOssAttrID, 56, iUseTimeMs);
+    m_pIDKeyOssFunc(m_oMonitorConfig.iUseTimeOssAttrID, GetKeyByUseTimeMs(iUseTimeMs) + 56, 1);
 }
 
 void MonCommiterBP :: NewValueCommitOK(const int iUseTimeMs)
@@ -432,6 +440,73 @@ void MonCommiterBP :: NewValueCommitOK(const int iUseTimeMs)
 void MonCommiterBP :: NewValueCommitFail()
 {
     m_pIDKeyOssFunc(m_oMonitorConfig.iOssAttrID, 65, 1);
+}
+
+void MonCommiterBP :: BatchPropose()
+{
+    m_pIDKeyOssFunc(m_oMonitorConfig.iUseTimeOssAttrID, 65, 1);
+}
+
+void MonCommiterBP :: BatchProposeOK()
+{
+    m_pIDKeyOssFunc(m_oMonitorConfig.iUseTimeOssAttrID, 66, 1);
+}
+
+void MonCommiterBP :: BatchProposeFail()
+{
+    m_pIDKeyOssFunc(m_oMonitorConfig.iUseTimeOssAttrID, 67, 1);
+}
+
+void MonCommiterBP :: BatchProposeWaitTimeMs(const int iWaitTimeMs)
+{
+    if (iWaitTimeMs <= 3)
+    {
+        m_pIDKeyOssFunc(m_oMonitorConfig.iUseTimeOssAttrID, 68, 1);
+    }
+    else if (iWaitTimeMs <= 10)
+    {
+        m_pIDKeyOssFunc(m_oMonitorConfig.iUseTimeOssAttrID, 69, 1);
+    } 
+    else if (iWaitTimeMs <= 30) 
+    {
+        m_pIDKeyOssFunc(m_oMonitorConfig.iUseTimeOssAttrID, 70, 1);
+    }
+    else if (iWaitTimeMs <= 100) 
+    {
+        m_pIDKeyOssFunc(m_oMonitorConfig.iUseTimeOssAttrID, 71, 1);
+    }
+    else
+    {
+        m_pIDKeyOssFunc(m_oMonitorConfig.iUseTimeOssAttrID, 72, 1);
+    }
+}
+
+void MonCommiterBP :: BatchProposeDoPropose(const int iBatchCount)
+{
+    if (iBatchCount <= 1)
+    {
+        m_pIDKeyOssFunc(m_oMonitorConfig.iUseTimeOssAttrID, 73, 1);
+    }
+    else if (iBatchCount <= 3)
+    {
+        m_pIDKeyOssFunc(m_oMonitorConfig.iUseTimeOssAttrID, 74, 1);
+    }
+    else if (iBatchCount <= 10)
+    {
+        m_pIDKeyOssFunc(m_oMonitorConfig.iUseTimeOssAttrID, 75, 1);
+    }
+    else if (iBatchCount <= 30)
+    {
+        m_pIDKeyOssFunc(m_oMonitorConfig.iUseTimeOssAttrID, 76, 1);
+    }
+    else if (iBatchCount <= 100)
+    {
+        m_pIDKeyOssFunc(m_oMonitorConfig.iUseTimeOssAttrID, 77, 1);
+    }
+    else
+    {
+        m_pIDKeyOssFunc(m_oMonitorConfig.iUseTimeOssAttrID, 78, 1);
+    }
 }
 
 //////////////////////////////////////////////////////////
@@ -508,6 +583,35 @@ void MonNetworkBP :: TcpOnReadMessageLenError()
 void MonNetworkBP :: TcpReconnect()
 {
     m_pIDKeyOssFunc(m_oMonitorConfig.iOssAttrID, 80, 1);
+}
+
+void MonNetworkBP :: TcpOutQueue(const int iDelayMs)
+{
+    m_pIDKeyOssFunc(m_oMonitorConfig.iUseTimeOssAttrID, 79, iDelayMs);
+    if (iDelayMs < 4)
+    {
+        m_pIDKeyOssFunc(m_oMonitorConfig.iUseTimeOssAttrID, 80, 1);
+    }
+    else if (iDelayMs < 10)
+    {
+        m_pIDKeyOssFunc(m_oMonitorConfig.iUseTimeOssAttrID, 81, 1);
+    }
+    else if (iDelayMs < 30)
+    {
+        m_pIDKeyOssFunc(m_oMonitorConfig.iUseTimeOssAttrID, 82, 1);
+    }
+    else if (iDelayMs < 100)
+    {
+        m_pIDKeyOssFunc(m_oMonitorConfig.iUseTimeOssAttrID, 83, 1);
+    }
+    else if (iDelayMs < 500)
+    {
+        m_pIDKeyOssFunc(m_oMonitorConfig.iUseTimeOssAttrID, 84, 1);
+    }
+    else
+    {
+        m_pIDKeyOssFunc(m_oMonitorConfig.iUseTimeOssAttrID, 85, 1);
+    }
 }
 
 void MonNetworkBP :: SendRejectByTooLargeSize()
@@ -669,12 +773,45 @@ void MonCheckpointBP :: ReceiveCheckpointAndLoadSucc()
 
 /////////////////////////////////////////////////////////////////
 
+void MonMasterBP :: TryBeMaster()
+{
+    m_pIDKeyOssFunc(m_oMonitorConfig.iUseTimeOssAttrID, 86, 1);
+}
+
+void MonMasterBP :: TryBeMasterProposeFail()
+{
+    m_pIDKeyOssFunc(m_oMonitorConfig.iUseTimeOssAttrID, 87, 1);
+}
+
+void MonMasterBP :: SuccessBeMaster()
+{
+    m_pIDKeyOssFunc(m_oMonitorConfig.iUseTimeOssAttrID, 88, 1);
+}
+
+void MonMasterBP :: OtherBeMaster()
+{
+    m_pIDKeyOssFunc(m_oMonitorConfig.iUseTimeOssAttrID, 89, 1);
+}
+
+void MonMasterBP :: DropMaster()
+{
+    m_pIDKeyOssFunc(m_oMonitorConfig.iUseTimeOssAttrID, 90, 1);
+}
+
+void MonMasterBP :: MasterSMInconsistent()
+{
+    m_pIDKeyOssFunc(m_oMonitorConfig.iUseTimeOssAttrID, 91, 1);
+}
+
+/////////////////////////////////////////////////////////////////
+
 MonitorBP :: MonitorBP(const MonitorConfig & oMonitorConfig, IDKeyOssFunc pIDKeyOssFunc) : 
     m_oProposerBP(oMonitorConfig, pIDKeyOssFunc), m_oAcceptorBP(oMonitorConfig, pIDKeyOssFunc),
     m_oLearnerBP(oMonitorConfig, pIDKeyOssFunc), m_oInstanceBP(oMonitorConfig, pIDKeyOssFunc),
     m_oCommiterBP(oMonitorConfig, pIDKeyOssFunc), m_oIOLoopBP(oMonitorConfig, pIDKeyOssFunc),
     m_oNetworkBP(oMonitorConfig, pIDKeyOssFunc), m_oLogStorageBP(oMonitorConfig, pIDKeyOssFunc),
-    m_oAlgorithmBaseBP(oMonitorConfig, pIDKeyOssFunc), m_oCheckpointBP(oMonitorConfig, pIDKeyOssFunc)
+    m_oAlgorithmBaseBP(oMonitorConfig, pIDKeyOssFunc), m_oCheckpointBP(oMonitorConfig, pIDKeyOssFunc),
+    m_oMasterBP(oMonitorConfig, pIDKeyOssFunc)
 {
 }
 
@@ -727,6 +864,12 @@ CheckpointBP *  MonitorBP :: GetCheckpointBP()
 {
     return &m_oCheckpointBP;
 }
+
+MasterBP * MonitorBP :: GetMasterBP()
+{
+    return &m_oMasterBP;
+}
     
 }
+
 

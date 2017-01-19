@@ -19,14 +19,14 @@ permissions and limitations under the License.
 See the AUTHORS file for names of contributors. 
 */
 
-#include "master_damon.h"
+#include "master_mgr.h"
 #include "comm_include.h"
 #include "commdef.h"
 
 namespace phxpaxos 
 {
 
-MasterDamon :: MasterDamon(const Node * poPaxosNode, const int iGroupIdx, const LogStorage * poLogStorage) 
+MasterMgr :: MasterMgr(const Node * poPaxosNode, const int iGroupIdx, const LogStorage * poLogStorage) 
     : m_oDefaultMasterSM(poLogStorage, poPaxosNode->GetMyNodeID(), iGroupIdx) 
 {
     m_iLeaseTime = 10000;
@@ -40,16 +40,16 @@ MasterDamon :: MasterDamon(const Node * poPaxosNode, const int iGroupIdx, const 
     m_bNeedDropMaster = false;
 }
 
-MasterDamon :: ~MasterDamon()
+MasterMgr :: ~MasterMgr()
 {
 }
 
-int MasterDamon :: Init()
+int MasterMgr :: Init()
 {
     return m_oDefaultMasterSM.Init();
 }
 
-void MasterDamon :: SetLeaseTime(const int iLeaseTimeMs)
+void MasterMgr :: SetLeaseTime(const int iLeaseTimeMs)
 {
     if (iLeaseTimeMs < 1000)
     {
@@ -59,12 +59,12 @@ void MasterDamon :: SetLeaseTime(const int iLeaseTimeMs)
     m_iLeaseTime = iLeaseTimeMs;
 }
 
-void MasterDamon :: DropMaster()
+void MasterMgr :: DropMaster()
 {
     m_bNeedDropMaster = true;
 }
 
-void MasterDamon :: StopMaster()
+void MasterMgr :: StopMaster()
 {
     if (m_bIsStarted)
     {
@@ -73,12 +73,12 @@ void MasterDamon :: StopMaster()
     }
 }
 
-void MasterDamon :: RunMaster()
+void MasterMgr :: RunMaster()
 {
     start();
 }
 
-void MasterDamon :: run()
+void MasterMgr :: run()
 {
     m_bIsStarted = true;
 
@@ -91,29 +91,31 @@ void MasterDamon :: run()
         
         int iLeaseTime = m_iLeaseTime;
 
-        uint64_t llBeginTime = Time::GetTimestampMS();
+        uint64_t llBeginTime = Time::GetSteadyClockMS();
         
         TryBeMaster(iLeaseTime);
 
-        int iConitnueLeaseTimeout = (iLeaseTime - 100) / 3;
+        int iContinueLeaseTimeout = (iLeaseTime - 100) / 4;
+        iContinueLeaseTimeout = iContinueLeaseTimeout / 2 + OtherUtils::FastRand() % iContinueLeaseTimeout;
 
         if (m_bNeedDropMaster)
         {
+            BP->GetMasterBP()->DropMaster();
             m_bNeedDropMaster = false;
-            iConitnueLeaseTimeout = iLeaseTime * 2;
-            PLG1Imp("Need drop master, this round wait time %dms", iConitnueLeaseTimeout);
+            iContinueLeaseTimeout = iLeaseTime * 2;
+            PLG1Imp("Need drop master, this round wait time %dms", iContinueLeaseTimeout);
         }
         
-        uint64_t llEndTime = Time::GetTimestampMS();
+        uint64_t llEndTime = Time::GetSteadyClockMS();
         int iRunTime = llEndTime > llBeginTime ? llEndTime - llBeginTime : 0;
-        int iNeedSleepTime = iConitnueLeaseTimeout > iRunTime ? iConitnueLeaseTimeout - iRunTime : 0;
+        int iNeedSleepTime = iContinueLeaseTimeout > iRunTime ? iContinueLeaseTimeout - iRunTime : 0;
 
         PLG1Imp("TryBeMaster, sleep time %dms", iNeedSleepTime);
         Time::MsSleep(iNeedSleepTime);
     }
 }
 
-void MasterDamon :: TryBeMaster(const int iLeaseTime)
+void MasterMgr :: TryBeMaster(const int iLeaseTime)
 {
     nodeid_t iMasterNodeID = nullnode;
     uint64_t llMasterVersion = 0;
@@ -127,6 +129,8 @@ void MasterDamon :: TryBeMaster(const int iLeaseTime)
                 iMasterNodeID, m_poPaxosNode->GetMyNodeID());
         return;
     }
+
+    BP->GetMasterBP()->TryBeMaster();
 
     //step 2 try be master
     std::string sPaxosValue;
@@ -143,21 +147,26 @@ void MasterDamon :: TryBeMaster(const int iLeaseTime)
 
     const int iMasterLeaseTimeout = iLeaseTime - 100;
     
-    uint64_t llAbsMasterTimeout = Time::GetTimestampMS() + iMasterLeaseTimeout; 
+    uint64_t llAbsMasterTimeout = Time::GetSteadyClockMS() + iMasterLeaseTimeout; 
     uint64_t llCommitInstanceID = 0;
 
     SMCtx oCtx;
     oCtx.m_iSMID = MASTER_V_SMID;
     oCtx.m_pCtx = (void *)&llAbsMasterTimeout;
 
-    m_poPaxosNode->Propose(m_iMyGroupIdx, sPaxosValue, llCommitInstanceID, &oCtx);
+    int ret = m_poPaxosNode->Propose(m_iMyGroupIdx, sPaxosValue, llCommitInstanceID, &oCtx);
+    if (ret != 0)
+    {
+        BP->GetMasterBP()->TryBeMasterProposeFail();
+    }
 }
 
-MasterStateMachine * MasterDamon :: GetMasterSM()
+MasterStateMachine * MasterMgr :: GetMasterSM()
 {
     return &m_oDefaultMasterSM;
 }
 
     
 }
+
 

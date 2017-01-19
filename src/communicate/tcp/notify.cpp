@@ -23,6 +23,7 @@ See the AUTHORS file for names of contributors.
 #include "commdef.h"
 #include <assert.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <sys/epoll.h>
 
 namespace phxpaxos
@@ -56,6 +57,9 @@ int Notify :: Init()
         return ret;
     }
 
+    fcntl(m_iPipeFD[0], F_SETFL, O_NONBLOCK);
+    fcntl(m_iPipeFD[1], F_SETFL, O_NONBLOCK);
+
     AddEvent(EPOLLIN);
     return 0;
 }
@@ -72,13 +76,22 @@ const std::string & Notify :: GetSocketHost()
 
 void Notify :: SendNotify()
 {
-    write(m_iPipeFD[1], (void *)"a", 1);
+    ssize_t iWriteLen = write(m_iPipeFD[1], (void *)"a", 1);
+    if (iWriteLen != 1)
+    {
+        //PLErr("notify error, writelen %d", iWriteLen);
+    }
 }
 
 int Notify :: OnRead()
 {
     char sTmp[2] = {0};
-    read(m_iPipeFD[0], sTmp, 1);
+    int iReadLen = read(m_iPipeFD[0], sTmp, 1);
+    if (iReadLen < 0)
+    {
+        return -1;
+    }
+
     return 0;
 }
 
@@ -88,4 +101,5 @@ void Notify :: OnError(bool & bNeedDelete)
 }
     
 }
+
 

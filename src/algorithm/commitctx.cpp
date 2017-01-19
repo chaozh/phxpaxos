@@ -28,14 +28,14 @@ namespace phxpaxos
 CommitCtx :: CommitCtx(Config * poConfig)
     : m_poConfig(poConfig)
 {
-    NewCommit(nullptr, nullptr, nullptr, 0);
+    NewCommit(nullptr, nullptr, 0);
 }
 
 CommitCtx :: ~CommitCtx()
 {
 }
 
-void CommitCtx :: NewCommit(std::string * psValue, StateMachine * poSM, SMCtx * poSMCtx, const int iTimeoutMs)
+void CommitCtx :: NewCommit(std::string * psValue, SMCtx * poSMCtx, const int iTimeoutMs)
 {
     m_oSerialLock.Lock();
 
@@ -45,7 +45,6 @@ void CommitCtx :: NewCommit(std::string * psValue, StateMachine * poSM, SMCtx * 
     m_iTimeoutMs = iTimeoutMs;
 
     m_psValue = psValue;
-    m_poSM = poSM;
     m_poSMCtx = poSMCtx;
 
     if (psValue != nullptr)
@@ -62,7 +61,7 @@ const bool CommitCtx :: IsNewCommit() const
     return m_llInstanceID == (uint64_t)-1 && m_psValue != nullptr;
 }
 
-const std::string & CommitCtx :: GetCommitValue()
+std::string & CommitCtx :: GetCommitValue()
 {
     return *m_psValue;
 }
@@ -74,12 +73,10 @@ void CommitCtx :: StartCommit(const uint64_t llInstanceID)
     m_oSerialLock.UnLock();
 }
 
-bool CommitCtx :: IsMyCommit(const uint64_t llInstanceID, const std::string & sLearnValue, 
-        StateMachine *& poSM, SMCtx *& poSMCtx)
+bool CommitCtx :: IsMyCommit(const uint64_t llInstanceID, const std::string & sLearnValue,  SMCtx *& poSMCtx)
 {
     m_oSerialLock.Lock();
 
-    poSM = nullptr;
     bool bIsMyCommit = false;
 
     if ((!m_bIsCommitEnd) && (m_llInstanceID == llInstanceID))
@@ -89,7 +86,6 @@ bool CommitCtx :: IsMyCommit(const uint64_t llInstanceID, const std::string & sL
 
     if (bIsMyCommit)
     {
-        poSM = m_poSM;
         poSMCtx = m_poSMCtx;
     }
 
@@ -136,9 +132,11 @@ void CommitCtx :: SetResult(
 
 int CommitCtx :: GetResult(uint64_t & llSuccInstanceID)
 {
+    m_oSerialLock.Lock();
+
     while (!m_bIsCommitEnd)
     {
-        m_oSerialLock.Wait();
+        m_oSerialLock.WaitTime(1000);
     }
 
     if (m_iCommitRet == 0)
@@ -162,4 +160,5 @@ const int CommitCtx :: GetTimeoutMs() const
 }
 
 }
+
 

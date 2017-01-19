@@ -19,45 +19,53 @@ permissions and limitations under the License.
 See the AUTHORS file for names of contributors. 
 */
 
-#include "utils.h"
+#pragma once
 
-namespace phxkv
+#include "commdef.h"
+#include "utils_include.h"
+#include "phxpaxos/node.h"
+#include "master_sm.h"
+
+namespace phxpaxos 
 {
 
-Mutex::Mutex() {
-    if (pthread_mutex_init(&_pm, 0)) {
-        throw SyncException(errno, "pthread_mutex_init error");
-    }
-}
+class MasterMgr : public Thread
+{
+public:
+    MasterMgr(const Node * poPaxosNode, const int iGroupIdx, const LogStorage * poLogStorage);
+    ~MasterMgr();
 
-Mutex::~Mutex() {
-    pthread_mutex_destroy(&_pm);
-}
+    void RunMaster();
+    
+    void StopMaster();
 
-void Mutex::lock() {
-    int ret = pthread_mutex_lock(&_pm);
-    if (ret) {
-        throw SyncException(ret, "pthread_mutex_lock error");
-    }
-}
+    int Init();
 
-bool Mutex::tryLock() {
-    int ret = pthread_mutex_trylock(&_pm);
-    if (ret) {
-        if (ret == EBUSY) {
-            return false;
-        }
-        throw SyncException(ret, "pthread_mutex_trylock error");
-    }
-    return true;
-}
+    void run();
 
-void Mutex::unlock() {
-    int ret = pthread_mutex_unlock(&_pm);
-    if (ret) {
-        throw SyncException(ret, "pthread_mutex_unlock error");
-    }
-}
+    void SetLeaseTime(const int iLeaseTimeMs);
 
-}
+    void TryBeMaster(const int iLeaseTime);
 
+    void DropMaster();
+
+public:
+    MasterStateMachine * GetMasterSM();
+
+private:
+    Node * m_poPaxosNode;
+
+    MasterStateMachine m_oDefaultMasterSM;
+
+private:
+    int m_iLeaseTime;
+
+    bool m_bIsEnd;
+    bool m_bIsStarted;
+
+    int m_iMyGroupIdx;
+
+    bool m_bNeedDropMaster;
+};
+    
+}

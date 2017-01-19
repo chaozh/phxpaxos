@@ -95,6 +95,12 @@ CheckpointBP * Breakpoint :: GetCheckpointBP()
 {
     return &m_oCheckpointBP;
 }
+
+MasterBP * Breakpoint :: GetMasterBP()
+{
+    return &m_oMasterBP;
+}
     
 }
+
 

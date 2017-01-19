@@ -20,17 +20,25 @@ GRPC_LIBE_PATH=$(SRC_BASE_PATH)/third_party/grpc/lib
 OPEN_SSL_LIB_PATH=$(SRC_BASE_PATH)/third_party/openssl/lib
 PHXPAXOS_LIB_PATH=$(SRC_BASE_PATH)/lib
 
+ifeq ($(debug),y)
+# (1) Debug
+	OPT = -g2
+else
+# (2) Production
+	OPT = -O2
+endif
 
 CXX=g++
-CXXFLAGS+=-std=c++11
+CXXFLAGS+=-std=c++11 $(OPT)
 CPPFLAGS+=-I$(SRC_BASE_PATH) -I$(PROTOBUF_INCLUDE_PATH)  -I$(LEVELDB_INCLUDE_PATH)
 CPPFLAGS+=-I$(GLOG_INCLUDE_PATH) 
-CPPFLAGS+=-Wall -g -fPIC -m64  -Wno-unused-local-typedefs
+CPPFLAGS+=-Wall -fPIC -m64  -Wno-unused-local-typedefs
 
 #LDFLAGS+=-shared
 #LDFLAGS+=-static 
 LDFLAGS+=-L$(PHX_LIB_PATH) -L$(PROTOBUF_LIB_PATH) -L$(LEVELDB_LIB_PATH)
 LDFLAGS+=-L$(GLOG_LIB_PATH) -L$(GRPC_LIBE_PATH) -L$(OPEN_SSL_LIB_PATH) -g
+LDFLAGS+=-Wl,--no-as-needed
 
 
 #=====================================================================================================
@@ -85,13 +93,25 @@ endif
 
 .PHONY:install
 install:
-	prefix_dir=`readlink $(PREFIX) -m`;\
+	@prefix_dir=`readlink $(PREFIX) -m`;\
 	src_dir=`readlink $(SRC_BASE_PATH) -m`;\
 	if ([ "$$prefix_dir" != "$$src_dir" ]); then \
 	echo cp $(PHX_LIB_PATH) $(PREFIX)/include -rf;\
 	cp $(PHXPAXOS_INCLUDE_PATH) $(PREFIX)/include -rf;\
 	fi
 	echo INSTALL to $(PREFIX)/lib;
-	mkdir $(PREFIX)/lib -p;\
+	@mkdir $(PREFIX)/lib -p;\
 	rm $(PREFIX)/lib/* -rf;\
 	cp $(PHX_EXTLIB_PATH)/* $(PREFIX)/lib/ -rf;
+
+version = 1.0.0
+
+dist: clean phxpaxos-$(version).src.tgz
+phxpaxos-$(version).src.tgz:
+	@rm -rf phxpaxos-$(version).src.tgz
+	@find ./* -name "Makefile" | xargs rm -rf
+	@find . -type f | grep -v CVS | grep -v "lib.*.a" | grep -v "license\.py" | grep -v .svn | grep -v .git | sed s:^./:phxpaxos-$(version)/: > MANIFEST
+	@(cd ..; ln -s phxpaxos phxpaxos-$(version))
+	(cd ..; tar cvf - `cat phxpaxos/MANIFEST` | gzip > phxpaxos/phxpaxos-$(version).src.tgz)
+	@(cd ..; rm phxpaxos-$(version))
+

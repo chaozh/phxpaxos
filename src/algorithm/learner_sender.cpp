@@ -28,6 +28,7 @@ namespace phxpaxos
 LearnerSender :: LearnerSender(Config * poConfig, Learner * poLearner, PaxosLog * poPaxosLog)
     : m_poConfig(poConfig), m_poLearner(poLearner), m_poPaxosLog(poPaxosLog)
 {
+    m_iAckLead = LearnerSender_ACK_LEAD; 
     m_bIsEnd = false;
     m_bIsStart = false;
     SendDone();
@@ -39,9 +40,9 @@ LearnerSender :: ~LearnerSender()
 
 void LearnerSender :: Stop()
 {
-    m_bIsEnd = true;
     if (m_bIsStart)
     {
+        m_bIsEnd = true;
         join();
     }
 }
@@ -70,7 +71,7 @@ void LearnerSender :: run()
 
 void LearnerSender :: ReleshSending()
 {
-    m_llAbsLastSendTime = Time::GetTimestampMS();
+    m_llAbsLastSendTime = Time::GetSteadyClockMS();
 }
 
 const bool LearnerSender :: IsIMSending()
@@ -80,7 +81,7 @@ const bool LearnerSender :: IsIMSending()
         return false;
     }
 
-    uint64_t llNowTime = Time::GetTimestampMS();
+    uint64_t llNowTime = Time::GetSteadyClockMS();
     uint64_t llPassTime = llNowTime > m_llAbsLastSendTime ? llNowTime - m_llAbsLastSendTime : 0;
 
     if ((int)llPassTime >= LearnerSender_PREPARE_TIMEOUT)
@@ -91,25 +92,51 @@ const bool LearnerSender :: IsIMSending()
     return true;
 }
 
+void LearnerSender :: CutAckLead()
+{
+    int iReceiveAckLead = LearnerReceiver_ACK_LEAD;
+    if (m_iAckLead - iReceiveAckLead > iReceiveAckLead)
+    {
+        m_iAckLead = m_iAckLead - iReceiveAckLead;
+    }
+}
+
 const bool LearnerSender :: CheckAck(const uint64_t llSendInstanceID)
 {
-    while (llSendInstanceID > m_llAckInstanceID + LearnerSender_ACK_LEAD)
+    m_oLock.Lock();
+
+    if (llSendInstanceID < m_llAckInstanceID)
     {
-        uint64_t llNowTime = Time::GetTimestampMS();
+        m_iAckLead = LearnerSender_ACK_LEAD;
+        PLGImp("Already catch up, ack instanceid %lu now send instanceid %lu", 
+                m_llAckInstanceID, llSendInstanceID);
+        m_oLock.UnLock();
+        return false;
+    }
+
+    while (llSendInstanceID > m_llAckInstanceID + m_iAckLead)
+    {
+        uint64_t llNowTime = Time::GetSteadyClockMS();
         uint64_t llPassTime = llNowTime > m_llAbsLastAckTime ? llNowTime - m_llAbsLastAckTime : 0;
 
         if ((int)llPassTime >= LearnerSender_ACK_TIMEOUT)
         {
             BP->GetLearnerBP()->SenderAckTimeout();
-            PLGErr("Ack timeout, last acktime %lu", m_llAbsLastAckTime);
+            PLGErr("Ack timeout, last acktime %lu now send instanceid %lu", 
+                    m_llAbsLastAckTime, llSendInstanceID);
+            CutAckLead();
+            m_oLock.UnLock();
             return false;
         }
 
         BP->GetLearnerBP()->SenderAckDelay();
         //PLGErr("Need sleep to slow down send speed, sendinstaceid %lu ackinstanceid %lu",
                 //llSendInstanceID, m_llAckInstanceID);
-        Time::MsSleep(50);
+        
+        m_oLock.WaitTime(20);
     }
+
+    m_oLock.UnLock();
 
     return true;
 }
@@ -126,7 +153,7 @@ const bool LearnerSender :: Prepare(const uint64_t llBeginInstanceID, const node
         bPrepareRet = true;
 
         m_bIsIMSending = true;
-        m_llAbsLastSendTime = m_llAbsLastAckTime = Time::GetTimestampMS();
+        m_llAbsLastSendTime = m_llAbsLastAckTime = Time::GetSteadyClockMS();
         m_llBeginInstanceID = m_llAckInstanceID = llBeginInstanceID;
         m_iSendToNodeID = iSendToNodeID;
     }
@@ -169,7 +196,8 @@ void LearnerSender :: Ack(const uint64_t llAckInstanceID, const nodeid_t iFromNo
             if (llAckInstanceID > m_llAckInstanceID)
             {
                 m_llAckInstanceID = llAckInstanceID;
-                m_llAbsLastAckTime = Time::GetTimestampMS();
+                m_llAbsLastAckTime = Time::GetSteadyClockMS();
+                m_oLock.Interupt();
             }
         }
     }
@@ -202,6 +230,15 @@ void LearnerSender :: SendLearnedValue(const uint64_t llBeginInstanceID, const n
     
     uint32_t iLastChecksum = 0;
 
+    //control send speed to avoid affecting the network too much.
+    int iSendQps = LearnerSender_SEND_QPS;
+    int iSleepMs = iSendQps > 1000 ? 1 : 1000 / iSendQps;
+    int iSendInterval = iSendQps > 1000 ? iSendQps / 1000 + 1 : 1; 
+
+    PLGDebug("SendQps %d SleepMs %d SendInterval %d AckLead %d",
+            iSendQps, iSleepMs, iSendInterval, m_iAckLead);
+
+    int iSendCount = 0;
     while (llSendInstanceID < m_poLearner->GetInstanceID())
     {    
         ret = SendOne(llSendInstanceID, iSendToNodeID, iLastChecksum);
@@ -217,9 +254,20 @@ void LearnerSender :: SendLearnedValue(const uint64_t llBeginInstanceID, const n
             return;
         }
 
+        iSendCount++;
         llSendInstanceID++;
         ReleshSending();
+
+        if (iSendCount >= iSendInterval)
+        {
+            iSendCount = 0;
+            Time::MsSleep(iSleepMs);
+        }
     }
+
+    //succ send, reset ack lead.
+    m_iAckLead = LearnerSender_ACK_LEAD;
+    PLGImp("SendDone, SendEndInstanceID %lu", llSendInstanceID);
 }
 
 int LearnerSender :: SendOne(const uint64_t llSendInstanceID, const nodeid_t iSendToNodeID, uint32_t & iLastChecksum)
@@ -260,4 +308,5 @@ void LearnerSender :: SendDone()
 
     
 }
+
 

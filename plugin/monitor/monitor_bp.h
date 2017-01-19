@@ -141,9 +141,16 @@ public:
     void NewValue();
     void NewValueConflict();
     void NewValueGetLockTimeout();
+    void NewValueGetLockReject();
     void NewValueGetLockOK(const int iUseTimeMs);
     void NewValueCommitOK(const int iUseTimeMs);
     void NewValueCommitFail();
+
+    void BatchPropose();
+    void BatchProposeOK();
+    void BatchProposeFail();
+    void BatchProposeWaitTimeMs(const int iWaitTimeMs);
+    void BatchProposeDoPropose(const int iBatchCount);
 
 private:
     MonitorConfig m_oMonitorConfig;
@@ -180,6 +187,7 @@ public:
     void TcpReadOneMessageOk(const int iLen);
     void TcpOnReadMessageLenError();
     void TcpReconnect();
+    void TcpOutQueue(const int iDelayMs);
     void SendRejectByTooLargeSize();
     void Send(const std::string & sMessage);
     void SendTcp(const std::string & sMessage);
@@ -253,8 +261,28 @@ private:
     IDKeyOssFunc m_pIDKeyOssFunc;
 };
 
+
 ///////////////////////////////////////////////////////////////
 
+class MonMasterBP : public MasterBP
+{
+public:
+    MonMasterBP(const MonitorConfig & oMonitorConfig, IDKeyOssFunc pIDKeyOssFunc) 
+        : m_oMonitorConfig(oMonitorConfig), m_pIDKeyOssFunc(pIDKeyOssFunc) { }
+
+    virtual void TryBeMaster();
+    virtual void TryBeMasterProposeFail();
+    virtual void SuccessBeMaster();
+    virtual void OtherBeMaster();
+    virtual void DropMaster();
+    virtual void MasterSMInconsistent();
+
+private:
+    MonitorConfig m_oMonitorConfig;
+    IDKeyOssFunc m_pIDKeyOssFunc;
+};
+
+///////////////////////////////////////////////////////////////
 
 class MonitorBP : public Breakpoint
 {
@@ -281,6 +309,8 @@ public:
 
     CheckpointBP * GetCheckpointBP();
 
+    MasterBP * GetMasterBP();
+
 public:
     MonProposerBP m_oProposerBP;
     MonAcceptorBP m_oAcceptorBP;
@@ -292,6 +322,7 @@ public:
     MonLogStorageBP m_oLogStorageBP;
     MonAlgorithmBaseBP m_oAlgorithmBaseBP;
     MonCheckpointBP m_oCheckpointBP;
+    MonMasterBP m_oMasterBP;
 };
     
 }

@@ -37,19 +37,31 @@ PNode :: ~PNode()
         poMaster->StopMaster();
     }
 
-    //2.step: stop network.
+    //2.step: stop proposebatch
+    for (auto & poProposeBatch : m_vecProposeBatch)
+    {
+        poProposeBatch->Stop();
+    }
+
+    //3.step: stop network.
     m_oDefaultNetWork.StopNetWork();
 
-    //3.step: delete paxos instance.
+    //4.step: delete paxos instance.
     for (auto & poGroup : m_vecGroupList)
     {
         delete poGroup;
     }
 
-    //4. step: delete master state machine.
+    //5. step: delete master state machine.
     for (auto & poMaster : m_vecMasterList)
     {
         delete poMaster;
+    }
+
+    //6. step: delete proposebatch;
+    for (auto & poProposeBatch : m_vecProposeBatch)
+    {
+        delete poProposeBatch;
     }
 }
 
@@ -131,15 +143,15 @@ int PNode :: CheckOptions(const Options & oOptions)
         return -2;
     }
 
-    if (oOptions.iGroupCount > 300)
+    if (oOptions.iGroupCount > 200)
     {
         PLErr("group count %d is too large", oOptions.iGroupCount);
         return -2;
     }
 
-    if (oOptions.iGroupCount < 0)
+    if (oOptions.iGroupCount <= 0)
     {
-        PLErr("group count %d is small than zero", oOptions.iGroupCount);
+        PLErr("group count %d is small than zero or equal to zero", oOptions.iGroupCount);
         return -2;
     }
     
@@ -174,7 +186,13 @@ void PNode :: InitStateMachine(const Options & oOptions)
         {
             AddStateMachine(oGroupSMInfo.iGroupIdx, poSM);
         }
+    }
+}
 
+void PNode :: RunMaster(const Options & oOptions)
+{
+    for (auto & oGroupSMInfo : oOptions.vecGroupSMInfoList)
+    {
         //check if need to run master.
         if (oGroupSMInfo.bIsUseMaster)
         {
@@ -187,6 +205,14 @@ void PNode :: InitStateMachine(const Options & oOptions)
                 PLImp("I'm follower, not run master damon.");
             }
         }
+    }
+}
+
+void PNode :: RunProposeBatch()
+{
+    for (auto & poProposeBatch : m_vecProposeBatch)
+    {
+        poProposeBatch->Start();
     }
 }
 
@@ -219,41 +245,69 @@ int PNode :: Init(const Options & oOptions, NetWork *& poNetWork)
     //step3 build masterlist
     for (int iGroupIdx = 0; iGroupIdx < oOptions.iGroupCount; iGroupIdx++)
     {
-        MasterDamon * poMaster = new MasterDamon(this, iGroupIdx, poLogStorage);
-        
+        MasterMgr * poMaster = new MasterMgr(this, iGroupIdx, poLogStorage);
         assert(poMaster != nullptr);
+        m_vecMasterList.push_back(poMaster);
 
         ret = poMaster->Init();
         if (ret != 0)
         {
             return ret;
         }
-
-        m_vecMasterList.push_back(poMaster);
     }
 
     //step4 build grouplist
     for (int iGroupIdx = 0; iGroupIdx < oOptions.iGroupCount; iGroupIdx++)
     {
         Group * poGroup = new Group(poLogStorage, poNetWork, m_vecMasterList[iGroupIdx]->GetMasterSM(), iGroupIdx, oOptions);
-
         assert(poGroup != nullptr);
-
         m_vecGroupList.push_back(poGroup);
     }
 
-    //step5 init statemachine
-    InitStateMachine(oOptions);    
-
-    //step6 init group
-    for (auto & poGroup : m_vecGroupList)
+    //step5 build batchpropose
+    if (oOptions.bUseBatchPropose)
     {
-        int ret = poGroup->Init();
-        if (ret != 0)
+        for (int iGroupIdx = 0; iGroupIdx < oOptions.iGroupCount; iGroupIdx++)
         {
-            return ret;
+            ProposeBatch * poProposeBatch = new ProposeBatch(iGroupIdx, this, &m_oNotifierPool);
+            assert(poProposeBatch != nullptr);
+            m_vecProposeBatch.push_back(poProposeBatch);
         }
     }
+
+    //step6 init statemachine
+    InitStateMachine(oOptions);    
+
+    //step7 parallel init group
+    for (auto & poGroup : m_vecGroupList)
+    {
+        poGroup->StartInit();
+    }
+
+    for (auto & poGroup : m_vecGroupList)
+    {
+        int initret = poGroup->GetInitRet();
+        if (initret != 0)
+        {
+            ret = initret;
+        }
+    }
+
+    if (ret != 0)
+    {
+        return ret;
+    }
+
+    //last step. must init ok, then should start threads.
+    //because that stop threads is slower, if init fail, we need much time to stop many threads.
+    //so we put start threads in the last step.
+    for (auto & poGroup : m_vecGroupList)
+    {
+        //start group's thread first.
+        poGroup->Start();
+    }
+    RunMaster(oOptions);
+    RunProposeBatch();
 
     PLHead("OK");
 
@@ -280,16 +334,6 @@ int PNode :: Propose(const int iGroupIdx, const std::string & sValue, uint64_t &
     return m_vecGroupList[iGroupIdx]->GetCommitter()->NewValueGetID(sValue, llInstanceID);
 }
 
-int PNode :: Propose(const int iGroupIdx, const std::string & sValue, uint64_t & llInstanceID, StateMachine * poSM)
-{
-    if (!CheckGroupID(iGroupIdx))
-    {
-        return Paxos_GroupIdxWrong;
-    }
-
-    return m_vecGroupList[iGroupIdx]->GetCommitter()->NewValueGetID(sValue, llInstanceID, poSM, nullptr);
-}
-
 int PNode :: Propose(const int iGroupIdx, const std::string & sValue, uint64_t & llInstanceID, SMCtx * poSMCtx)
 {
     if (!CheckGroupID(iGroupIdx))
@@ -297,7 +341,7 @@ int PNode :: Propose(const int iGroupIdx, const std::string & sValue, uint64_t &
         return Paxos_GroupIdxWrong;
     }
 
-    return m_vecGroupList[iGroupIdx]->GetCommitter()->NewValueGetID(sValue, llInstanceID, nullptr, poSMCtx);
+    return m_vecGroupList[iGroupIdx]->GetCommitter()->NewValueGetID(sValue, llInstanceID, poSMCtx);
 }
 
 const uint64_t PNode :: GetNowInstanceID(const int iGroupIdx)
@@ -406,6 +450,169 @@ void PNode :: ContinuePaxosLogCleaner()
 
 ///////////////////////////////////////////////////////
 
+int PNode :: ProposalMembership(
+        SystemVSM * poSystemVSM, 
+        const int iGroupIdx, 
+        const NodeInfoList & vecNodeInfoList, 
+        const uint64_t llVersion)
+{
+    string sOpValue;
+    int ret = poSystemVSM->Membership_OPValue(vecNodeInfoList, llVersion, sOpValue);
+    if (ret != 0)
+    {
+        return Paxos_SystemError;
+    }
+
+    SMCtx oCtx;
+    int smret = -1;
+    oCtx.m_iSMID = SYSTEM_V_SMID;
+    oCtx.m_pCtx = (void *)&smret;
+
+    uint64_t llInstanceID = 0;
+    ret = Propose(iGroupIdx, sOpValue, llInstanceID, &oCtx);
+    if (ret != 0)
+    {
+        return ret;
+    }
+
+    return smret;
+}
+
+int PNode :: AddMember(const int iGroupIdx, const NodeInfo & oNode)
+{
+    if (!CheckGroupID(iGroupIdx))
+    {
+        return Paxos_GroupIdxWrong;
+    }
+
+    SystemVSM * poSystemVSM = m_vecGroupList[iGroupIdx]->GetConfig()->GetSystemVSM();
+
+    if (poSystemVSM->GetGid() == 0)
+    {
+        return Paxos_MembershipOp_NoGid;
+    }
+
+    uint64_t llVersion = 0;
+    NodeInfoList vecNodeInfoList;
+    poSystemVSM->GetMembership(vecNodeInfoList, llVersion);
+
+    for (auto & oNodeInfo : vecNodeInfoList)
+    {
+        if (oNodeInfo.GetNodeID() == oNode.GetNodeID())
+        {
+            return Paxos_MembershipOp_Add_NodeExist;
+        }
+    }
+
+    vecNodeInfoList.push_back(oNode);
+
+    return ProposalMembership(poSystemVSM, iGroupIdx, vecNodeInfoList, llVersion);
+}
+
+int PNode :: RemoveMember(const int iGroupIdx, const NodeInfo & oNode)
+{
+    if (!CheckGroupID(iGroupIdx))
+    {
+        return Paxos_GroupIdxWrong;
+    }
+
+    SystemVSM * poSystemVSM = m_vecGroupList[iGroupIdx]->GetConfig()->GetSystemVSM();
+
+    if (poSystemVSM->GetGid() == 0)
+    {
+        return Paxos_MembershipOp_NoGid;
+    }
+
+    uint64_t llVersion = 0;
+    NodeInfoList vecNodeInfoList;
+    poSystemVSM->GetMembership(vecNodeInfoList, llVersion);
+
+    bool bNodeExist = false;
+    NodeInfoList vecAfterNodeInfoList;
+    for (auto & oNodeInfo : vecNodeInfoList)
+    {
+        if (oNodeInfo.GetNodeID() == oNode.GetNodeID())
+        {
+            bNodeExist = true;
+        }
+        else
+        {
+            vecAfterNodeInfoList.push_back(oNodeInfo);
+        }
+    }
+
+    if (!bNodeExist)
+    {
+        return Paxos_MembershipOp_Remove_NodeNotExist;
+    }
+
+    return ProposalMembership(poSystemVSM, iGroupIdx, vecAfterNodeInfoList, llVersion);
+}
+
+int PNode :: ChangeMember(const int iGroupIdx, const NodeInfo & oFromNode, const NodeInfo & oToNode)
+{
+    if (!CheckGroupID(iGroupIdx))
+    {
+        return Paxos_GroupIdxWrong;
+    }
+
+    SystemVSM * poSystemVSM = m_vecGroupList[iGroupIdx]->GetConfig()->GetSystemVSM();
+
+    if (poSystemVSM->GetGid() == 0)
+    {
+        return Paxos_MembershipOp_NoGid;
+    }
+
+    uint64_t llVersion = 0;
+    NodeInfoList vecNodeInfoList;
+    poSystemVSM->GetMembership(vecNodeInfoList, llVersion);
+
+    NodeInfoList vecAfterNodeInfoList;
+    bool bFromNodeExist = false;
+    bool bToNodeExist = false;
+    for (auto & oNodeInfo : vecNodeInfoList)
+    {
+        if (oNodeInfo.GetNodeID() == oFromNode.GetNodeID())
+        {
+            bFromNodeExist = true;
+            continue;
+        }
+        else if (oNodeInfo.GetNodeID() == oToNode.GetNodeID())
+        {
+            bToNodeExist = true;
+            continue;
+        }
+
+        vecAfterNodeInfoList.push_back(oNodeInfo);
+    }
+
+    if ((!bFromNodeExist) && bToNodeExist)
+    {
+        return Paxos_MembershipOp_Change_NoChange;
+    }
+
+    vecAfterNodeInfoList.push_back(oToNode);
+
+    return ProposalMembership(poSystemVSM, iGroupIdx, vecAfterNodeInfoList, llVersion);
+}
+
+int PNode :: ShowMembership(const int iGroupIdx, NodeInfoList & vecNodeInfoList)
+{
+    if (!CheckGroupID(iGroupIdx))
+    {
+        return Paxos_GroupIdxWrong;
+    }
+
+    SystemVSM * poSystemVSM = m_vecGroupList[iGroupIdx]->GetConfig()->GetSystemVSM();
+
+    uint64_t llVersion = 0;
+    poSystemVSM->GetMembership(vecNodeInfoList, llVersion);
+
+    return 0;
+}
+
+//////////////////////////////////////////////////////////////////////////////
+
 const NodeInfo PNode :: GetMaster(const int iGroupIdx)
 {
     if (!CheckGroupID(iGroupIdx))
@@ -414,6 +621,16 @@ const NodeInfo PNode :: GetMaster(const int iGroupIdx)
     }
 
     return NodeInfo(m_vecMasterList[iGroupIdx]->GetMasterSM()->GetMaster());
+}
+
+const NodeInfo PNode :: GetMasterWithVersion(const int iGroupIdx, uint64_t & llVersion) 
+{
+    if (!CheckGroupID(iGroupIdx))
+    {
+        return NodeInfo(nullnode);
+    }
+
+    return NodeInfo(m_vecMasterList[iGroupIdx]->GetMasterSM()->GetMasterWithVersion(llVersion));
 }
 
 const bool PNode :: IsIMMaster(const int iGroupIdx)
@@ -447,6 +664,134 @@ int PNode :: DropMaster(const int iGroupIdx)
     m_vecMasterList[iGroupIdx]->DropMaster();
     return 0;
 }
+
+/////////////////////////////////////////////////////////////////////
+
+void PNode :: SetMaxHoldThreads(const int iGroupIdx, const int iMaxHoldThreads)
+{
+    if (!CheckGroupID(iGroupIdx))
+    {
+        return;
+    }
+
+    m_vecGroupList[iGroupIdx]->GetCommitter()->SetMaxHoldThreads(iMaxHoldThreads);
+}
+
+void PNode :: SetProposeWaitTimeThresholdMS(const int iGroupIdx, const int iWaitTimeThresholdMS)
+{
+    if (!CheckGroupID(iGroupIdx))
+    {
+        return;
+    }
+
+    m_vecGroupList[iGroupIdx]->GetCommitter()->SetProposeWaitTimeThresholdMS(iWaitTimeThresholdMS);
+}
+
+void PNode :: SetLogSync(const int iGroupIdx, const bool bLogSync)
+{
+    if (!CheckGroupID(iGroupIdx))
+    {
+        return;
+    }
+
+    m_vecGroupList[iGroupIdx]->GetConfig()->SetLogSync(bLogSync);
+}
+
+//////////////////////////////////////////////////////////////////////
+
+int PNode :: GetInstanceValue(const int iGroupIdx, const uint64_t llInstanceID, 
+        std::vector<std::pair<std::string, int> > & vecValues)
+{
+    if (!CheckGroupID(iGroupIdx))
+    {
+        return Paxos_GroupIdxWrong;
+    }
+
+    string sValue;
+    int iSMID = 0;
+    int ret = m_vecGroupList[iGroupIdx]->GetInstance()->GetInstanceValue(llInstanceID, sValue, iSMID);
+    if (ret != 0)
+    {
+        return ret;
+    }
+
+    if (iSMID == BATCH_PROPOSE_SMID)
+    {
+        BatchPaxosValues oBatchValues;
+        bool bSucc = oBatchValues.ParseFromArray(sValue.data(), sValue.size());
+        if (!bSucc)
+        {
+            return Paxos_SystemError;
+        }
+
+        for (int i = 0; i < oBatchValues.values_size(); i++)
+        {
+            const PaxosValue & oValue = oBatchValues.values(i);
+            vecValues.push_back(make_pair(oValue.value(), oValue.smid()));
+        }
+    }
+    else
+    {
+        vecValues.push_back(make_pair(sValue, iSMID));
+    }
+
+    return 0;
+}
+
+//////////////////////////////////////////////////////////////////////////
+
+int PNode :: BatchPropose(const int iGroupIdx, const std::string & sValue, 
+        uint64_t & llInstanceID, uint32_t & iBatchIndex)
+{
+    return BatchPropose(iGroupIdx, sValue, llInstanceID, iBatchIndex, nullptr);
+}
+
+int PNode :: BatchPropose(const int iGroupIdx, const std::string & sValue, 
+        uint64_t & llInstanceID, uint32_t & iBatchIndex, SMCtx * poSMCtx)
+{
+    if (!CheckGroupID(iGroupIdx))
+    {
+        return Paxos_GroupIdxWrong;
+    }
+
+    if (m_vecProposeBatch.size() == 0)
+    {
+        return Paxos_SystemError;
+    }
+
+    return m_vecProposeBatch[iGroupIdx]->Propose(sValue, llInstanceID, iBatchIndex, poSMCtx);
+}
+
+void PNode :: SetBatchCount(const int iGroupIdx, const int iBatchCount)
+{
+    if (!CheckGroupID(iGroupIdx))
+    {
+        return;
+    }
+
+    if (m_vecProposeBatch.size() == 0)
+    {
+        return;
+    }
+
+    m_vecProposeBatch[iGroupIdx]->SetBatchCount(iBatchCount);
+}
+
+void PNode :: SetBatchDelayTimeMs(const int iGroupIdx, const int iBatchDelayTimeMs)
+{
+    if (!CheckGroupID(iGroupIdx))
+    {
+        return;
+    }
+
+    if (m_vecProposeBatch.size() == 0)
+    {
+        return;
+    }
+
+    m_vecProposeBatch[iGroupIdx]->SetBatchDelayTimeMs(iBatchDelayTimeMs);
+}
     
 }
+
 

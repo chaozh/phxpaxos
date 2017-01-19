@@ -21,6 +21,7 @@ See the AUTHORS file for names of contributors.
 
 #pragma once
 
+#include <mutex>
 #include "phxpaxos/sm.h"
 #include "commdef.h"
 #include "phxpaxos/def.h"
@@ -59,6 +60,10 @@ public:
         return m_llMasterVersion;
     }
 
+    void BeforePropose(const int iGroupIdx, std::string & sValue);
+
+    const bool NeedCallBeforePropose();
+
 public:
     int GetCheckpointState(const int iGroupIdx, std::string & sDirPath, 
             std::vector<std::string> & vecFileList)
@@ -90,6 +95,8 @@ public:
             const uint64_t llAbsMasterTimeout = 0);
 
     const nodeid_t GetMaster() const;
+
+    const nodeid_t GetMasterWithVersion(uint64_t & llVersion);
 
     const bool IsIMMaster() const;
 
@@ -123,7 +130,7 @@ private:
     int m_iLeaseTime;
     uint64_t m_llAbsExpireTime;
 
-    Mutex m_oMutex;
+    std::mutex m_oMutex;
 };
     
 }

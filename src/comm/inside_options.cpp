@@ -30,6 +30,7 @@ InsideOptions :: InsideOptions()
 {
     m_bIsLargeBufferMode = false;
     m_bIsIMFollower = false;
+    m_iGroupCount = 1;
 }
 
 InsideOptions :: ~InsideOptions()
@@ -50,6 +51,11 @@ void InsideOptions :: SetAsLargeBufferMode()
 void InsideOptions :: SetAsFollower()
 {
     m_bIsIMFollower = true;
+}
+
+void InsideOptions :: SetGroupCount(const int iGroupCount)
+{
+    m_iGroupCount = iGroupCount;
 }
 
 const int InsideOptions :: GetMaxBufferSize()
@@ -84,7 +90,7 @@ const int InsideOptions :: GetStartAcceptTimeoutMs()
     }
     else
     {
-        return 2000;
+        return 1000;
     }
 }
 
@@ -109,6 +115,18 @@ const int InsideOptions :: GetMaxAcceptTimeoutMs()
     else
     {
         return 8000;
+    }
+}
+
+const int InsideOptions :: GetMaxIOLoopQueueLen()
+{
+    if (m_bIsLargeBufferMode)
+    {
+        return 1024 / m_iGroupCount + 100;
+    }
+    else
+    {
+        return 10240 / m_iGroupCount + 1000;
     }
 }
 
@@ -150,23 +168,23 @@ const int InsideOptions :: GetAskforLearnInterval()
     }
 }
 
-const int InsideOptions :: GetLeanerReceiver_Ack_Lead()
+const int InsideOptions :: GetLearnerReceiver_Ack_Lead()
 {
     if (m_bIsLargeBufferMode)
     {
-        return 5;
+        return 2;
     }
     else
     {
-        return 25;
+        return 4;
     }
 }
 
-const int InsideOptions :: GetLeanerSenderPrepareTimeoutMs()
+const int InsideOptions :: GetLearnerSenderPrepareTimeoutMs()
 {
     if (m_bIsLargeBufferMode)
     {
-        return 5000;
+        return 6000;
     }
     else
     {
@@ -174,7 +192,7 @@ const int InsideOptions :: GetLeanerSenderPrepareTimeoutMs()
     }
 }
 
-const int InsideOptions :: GetLeanerSender_Ack_TimeoutMs()
+const int InsideOptions :: GetLearnerSender_Ack_TimeoutMs()
 {
     if (m_bIsLargeBufferMode)
     {
@@ -186,15 +204,15 @@ const int InsideOptions :: GetLeanerSender_Ack_TimeoutMs()
     }
 }
 
-const int InsideOptions :: GetLeanerSender_Ack_Lead()
+const int InsideOptions :: GetLearnerSender_Ack_Lead()
 {
     if (m_bIsLargeBufferMode)
     {
-        return 11;
+        return 5;
     }
     else
     {
-        return 51;
+        return 21;
     }
 }
 
@@ -234,5 +252,30 @@ const int InsideOptions :: GetTcpConnectionNonActiveTimeout()
     }
 }
 
+const int InsideOptions :: GetLearnerSenderSendQps()
+{
+    if (m_bIsLargeBufferMode)
+    {
+        return 10000 / m_iGroupCount;
+    }
+    else
+    {
+        return 100000 / m_iGroupCount;
+    }
 }
+
+const int InsideOptions :: GetCleanerDeleteQps()
+{
+    if (m_bIsLargeBufferMode)
+    {
+        return 30000 / m_iGroupCount;
+    }
+    else
+    {
+        return 300000 / m_iGroupCount;
+    }
+}
+
+}
+
 

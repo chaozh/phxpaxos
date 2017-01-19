@@ -58,7 +58,7 @@ void MakeConfig(MockLogStorage * poMockLogStorage, Config *& poConfig)
     int iGroupCount = 1;
 
     poConfig = nullptr;
-    poConfig = new Config(poMockLogStorage, false, oMyNode, vecNodeInfoList, vecFollowerNodeInfoList, iMyGroupIdx, iGroupCount, nullptr);
+    poConfig = new Config(poMockLogStorage, true, 0, false, oMyNode, vecNodeInfoList, vecFollowerNodeInfoList, iMyGroupIdx, iGroupCount, nullptr);
     assert(poConfig != nullptr);
 
     EXPECT_CALL(*poMockLogStorage, GetSystemVariables(_,_)).Times(1).WillOnce(Return(1));
@@ -76,7 +76,8 @@ void MakeCommunicate(MockNetWork * poMockNetWork, Config * poConfig, Communicate
 void MakeInstance(MockLogStorage * poMockLogStorage, Config * poConfig, Communicate * poCommunicate, Instance *& poInstance)
 {
     poInstance = nullptr;
-    poInstance = new Instance(poConfig, poMockLogStorage, poCommunicate, false);
+    Options oOptions;
+    poInstance = new Instance(poConfig, poMockLogStorage, poCommunicate, oOptions);
     assert(poInstance != nullptr);
 }
 
@@ -95,6 +96,7 @@ void MakeProposer(Config * poConfig, Communicate * poCommunicate, Instance * poI
 }
 
 }
+
 
 
 

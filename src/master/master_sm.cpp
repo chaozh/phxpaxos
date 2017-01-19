@@ -73,7 +73,7 @@ int MasterStateMachine :: Init()
         else
         {
             m_iMasterNodeID = oVariables.masternodeid();
-            m_llAbsExpireTime = Time::GetTimestampMS() + oVariables.leasetime();
+            m_llAbsExpireTime = Time::GetSteadyClockMS() + oVariables.leasetime();
         }
     }
     
@@ -91,7 +91,7 @@ int MasterStateMachine :: UpdateMasterToStore(const nodeid_t llMasterNodeID, con
     oVariables.set_leasetime(iLeaseTime);
 
     WriteOptions oWriteOptions;
-    oWriteOptions.bSync = false;
+    oWriteOptions.bSync = true;
     
     return m_oMVStore.Write(oWriteOptions, m_iMyGroupIdx, oVariables);
 }
@@ -101,11 +101,29 @@ int MasterStateMachine :: LearnMaster(
         const MasterOperator & oMasterOper, 
         const uint64_t llAbsMasterTimeout)
 {
-    ScopedLock<Mutex> oLockGuard(m_oMutex);
+    std::lock_guard<std::mutex> oLockGuard(m_oMutex);
+
+    PLG1Debug("my last version %lu other last version %lu this version %lu instanceid %lu",
+            m_llMasterVersion, oMasterOper.lastversion(), oMasterOper.version(), llInstanceID);
+
+    if (oMasterOper.lastversion() != 0
+            && llInstanceID > m_llMasterVersion
+            && oMasterOper.lastversion() != m_llMasterVersion)
+    {
+        BP->GetMasterBP()->MasterSMInconsistent();
+        PLG1Err("other last version %lu not same to my last version %lu, instanceid %lu",
+                oMasterOper.lastversion(), m_llMasterVersion, llInstanceID);
+        if (OtherUtils::FastRand() % 100 < 50) {
+            //try to fix online
+            PLG1Err("try to fix, set my master version %lu as other last version %lu, instanceid %lu",
+                    m_llMasterVersion, oMasterOper.lastversion(), llInstanceID);
+            m_llMasterVersion = oMasterOper.lastversion();
+        }
+    }
 
     if (oMasterOper.version() != m_llMasterVersion)
     {
-        PLG1Err("version conflit, op version %lu now master version %lu",
+        PLG1Debug("version conflit, op version %lu now master version %lu",
                 oMasterOper.version(), m_llMasterVersion);
         return 0;
     }
@@ -124,14 +142,16 @@ int MasterStateMachine :: LearnMaster(
         //use local abstimeout
         m_llAbsExpireTime = llAbsMasterTimeout;
 
+        BP->GetMasterBP()->SuccessBeMaster();
         PLG1Head("Be master success, absexpiretime %lu", m_llAbsExpireTime);
     }
     else
     {
         //other be master
         //use new start timeout
-        m_llAbsExpireTime = Time::GetTimestampMS() + oMasterOper.timeout();
+        m_llAbsExpireTime = Time::GetSteadyClockMS() + oMasterOper.timeout();
 
+        BP->GetMasterBP()->OtherBeMaster();
         PLG1Head("Ohter be master, absexpiretime %lu", m_llAbsExpireTime);
     }
 
@@ -146,9 +166,9 @@ int MasterStateMachine :: LearnMaster(
 
 void MasterStateMachine :: SafeGetMaster(nodeid_t & iMasterNodeID, uint64_t & llMasterVersion)
 {
-    ScopedLock<Mutex> oLockGuard(m_oMutex);
+    std::lock_guard<std::mutex> oLockGuard(m_oMutex);
 
-    if (Time::GetTimestampMS() >= m_llAbsExpireTime)
+    if (Time::GetSteadyClockMS() >= m_llAbsExpireTime)
     {
         iMasterNodeID = nullnode;
     }
@@ -162,12 +182,19 @@ void MasterStateMachine :: SafeGetMaster(nodeid_t & iMasterNodeID, uint64_t & ll
 
 const nodeid_t MasterStateMachine :: GetMaster() const
 {
-    if (Time::GetTimestampMS() >= m_llAbsExpireTime)
+    if (Time::GetSteadyClockMS() >= m_llAbsExpireTime)
     {
         return nullnode;
     }
 
     return m_iMasterNodeID;
+}
+
+const nodeid_t MasterStateMachine :: GetMasterWithVersion(uint64_t & llVersion) 
+{
+    nodeid_t iMasterNodeID = nullnode;
+    SafeGetMaster(iMasterNodeID, llVersion);
+    return iMasterNodeID;
 }
 
 const bool MasterStateMachine :: IsIMMaster() const
@@ -186,8 +213,7 @@ bool MasterStateMachine :: Execute(const int iGroupIdx, const uint64_t llInstanc
     if (!bSucc)
     {
         PLG1Err("oMasterOper data wrong");
-        //wrong oper data, just skip, so return true
-        return true;
+        return false;
     }
 
     if (oMasterOper.operator_() == MasterOperatorType_Complete)
@@ -241,6 +267,8 @@ bool MasterStateMachine :: MakeOpValue(
 
 int MasterStateMachine :: GetCheckpointBuffer(std::string & sCPBuffer)
 {
+    std::lock_guard<std::mutex> oLockGuard(m_oMutex);
+
     if (m_llMasterVersion == (uint64_t)-1)
     {
         return 0;
@@ -276,6 +304,8 @@ int MasterStateMachine :: UpdateByCheckpoint(const std::string & sCPBuffer, bool
         return -1;
     }
 
+    std::lock_guard<std::mutex> oLockGuard(m_oMutex);
+
     if (oVariables.version() <= m_llMasterVersion
             && m_llMasterVersion != (uint64_t)-1)
     {
@@ -305,11 +335,35 @@ int MasterStateMachine :: UpdateByCheckpoint(const std::string & sCPBuffer, bool
     else
     {
         m_iMasterNodeID = oVariables.masternodeid();
-        m_llAbsExpireTime = Time::GetTimestampMS() + oVariables.leasetime();
+        m_llAbsExpireTime = Time::GetSteadyClockMS() + oVariables.leasetime();
     }
 
     return 0;
 }
 
+////////////////////////////////////////////////////////
+
+void MasterStateMachine :: BeforePropose(const int iGroupIdx, std::string & sValue)
+{
+    std::lock_guard<std::mutex> oLockGuard(m_oMutex);
+    MasterOperator oMasterOper;
+    bool bSucc = oMasterOper.ParseFromArray(sValue.data(), sValue.size());
+    if (!bSucc)
+    {
+        return;
+    }
+
+    oMasterOper.set_lastversion(m_llMasterVersion);
+    sValue.clear();
+    bSucc = oMasterOper.SerializeToString(&sValue);
+    assert(bSucc == true);
+} 
+
+const bool MasterStateMachine :: NeedCallBeforePropose()
+{
+    return true;
 }
+
+}
+
 

@@ -148,7 +148,7 @@ Learner :: ~Learner()
     delete m_poCheckpointSender;
 }
 
-void Learner :: Init()
+void Learner :: StartLearnerSender()
 {
     m_oLearnerSender.start();
 }
@@ -298,7 +298,7 @@ void Learner :: OnAskforLearn(const PaxosMsg & oPaxosMsg)
                 if (ret == 0)
                 {
                     BallotNumber oBallot(oState.acceptedid(), oState.acceptednodeid());
-                    SendLearnValue(oPaxosMsg.nodeid(), oPaxosMsg.instanceid(), oBallot, oState.acceptedvalue(), 0);
+                    SendLearnValue(oPaxosMsg.nodeid(), oPaxosMsg.instanceid(), oBallot, oState.acceptedvalue(), 0, false);
                 }
             }
             
@@ -371,7 +371,7 @@ void Learner :: OnSendNowInstanceID(const PaxosMsg & oPaxosMsg)
             PLGHead("MasterVariables changed!");
         }
     }
-    
+
     if (oPaxosMsg.instanceid() != GetInstanceID())
     {
         PLGErr("Lag msg, skip");
@@ -477,23 +477,25 @@ void Learner :: OnSendLearnValue(const PaxosMsg & oPaxosMsg)
         PLGDebug("[Latest Msg] i can't learn");
         return;
     }
-    else if (oPaxosMsg.instanceid() < GetInstanceID())
+
+    if (oPaxosMsg.instanceid() < GetInstanceID())
     {
         PLGDebug("[Lag Msg] no need to learn");
-        return;
     }
-
-    //learn value
-    BallotNumber oBallot(oPaxosMsg.proposalid(), oPaxosMsg.proposalnodeid());
-    int ret = m_oLearnerState.LearnValue(oPaxosMsg.instanceid(), oBallot, oPaxosMsg.value(), GetLastChecksum());
-    if (ret != 0)
+    else
     {
-        PLGErr("LearnState.LearnValue fail, ret %d", ret);
-        return;
+        //learn value
+        BallotNumber oBallot(oPaxosMsg.proposalid(), oPaxosMsg.proposalnodeid());
+        int ret = m_oLearnerState.LearnValue(oPaxosMsg.instanceid(), oBallot, oPaxosMsg.value(), GetLastChecksum());
+        if (ret != 0)
+        {
+            PLGErr("LearnState.LearnValue fail, ret %d", ret);
+            return;
+        }
+        
+        PLGHead("END LearnValue OK, proposalid %lu proposalid_nodeid %lu valueLen %zu", 
+                oPaxosMsg.proposalid(), oPaxosMsg.nodeid(), oPaxosMsg.value().size());
     }
-    
-    PLGHead("END LearnValue OK, proposalid %lu proposalid_nodeid %lu valueLen %zu", 
-            oPaxosMsg.proposalid(), oPaxosMsg.nodeid(), oPaxosMsg.value().size());
 
     if (oPaxosMsg.flag() == PaxosMsgFlagType_SendLearnValue_NeedAck)
     {
@@ -508,7 +510,7 @@ void Learner :: SendLearnValue_Ack(const nodeid_t iSendNodeID)
 {
     PLGHead("START LastAck.Instanceid %lu Now.Instanceid %lu", m_llLastAckInstanceID, GetInstanceID());
 
-    if (GetInstanceID() < m_llLastAckInstanceID + SENDLEARNVALUE_ACK_LEAD)
+    if (GetInstanceID() < m_llLastAckInstanceID + LearnerReceiver_ACK_LEAD)
     {
         PLGImp("No need to ack");
         return;
@@ -918,5 +920,6 @@ CheckpointSender * Learner :: GetNewCheckpointSender(const nodeid_t iSendNodeID)
 
 
 }
+
 
 

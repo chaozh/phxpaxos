@@ -37,6 +37,7 @@ TcpAcceptor :: TcpAcceptor(
     m_poNetWork(poNetWork)
 {
     m_bIsEnd = false;
+    m_bIsStarted = false;
 }
 
 TcpAcceptor :: ~TcpAcceptor()
@@ -59,12 +60,17 @@ void TcpAcceptor :: Listen(const std::string & sListenIP, const int iListenPort)
 
 void TcpAcceptor :: Stop()
 {
-    m_bIsEnd = true;
-    join();
+    if (m_bIsStarted)
+    {
+        m_bIsEnd = true;
+        join();
+    }
 }
 
 void TcpAcceptor :: run()
 {
+    m_bIsStarted = true;
+
     PLHead("start accept...");
 
     m_oSocket.setAcceptTimeout(500);
@@ -120,12 +126,13 @@ void TcpAcceptor :: run()
 
 void TcpAcceptor :: CreateEvent()
 {
+    std::lock_guard<std::mutex> oLockGuard(m_oMutex);
+
     if (m_oFDQueue.empty())
     {
         return;
     }
     
-    m_oMutex.lock();
     int iCreatePerTime = 200;
     while ((!m_oFDQueue.empty()) && iCreatePerTime--)
     {
@@ -141,13 +148,12 @@ void TcpAcceptor :: CreateEvent()
 
         delete poData;
     }
-
-    m_oMutex.unlock();
 }
 
 void TcpAcceptor :: ClearEvent()
 {
-    m_oMutex.lock();
+    std::lock_guard<std::mutex> oLockGuard(m_oMutex);
+
     for (auto it = m_vecCreatedEvent.begin(); it != end(m_vecCreatedEvent);)
     {
         if ((*it)->IsDestroy())
@@ -160,8 +166,8 @@ void TcpAcceptor :: ClearEvent()
             it++;
         }
     }
-    m_oMutex.unlock();
 }
     
 }
+
 

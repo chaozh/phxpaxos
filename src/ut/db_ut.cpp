@@ -163,6 +163,11 @@ TEST(MultiDatabase, Del)
 	{
 		ASSERT_TRUE(oDB.Del(oWriteOptions, iGroupIdx, llInstanceID) == 0);
 	}
+
+	for (int iGroupIdx = 0; iGroupIdx < iGroupCount; iGroupIdx++)
+	{
+		ASSERT_TRUE(oDB.Del(oWriteOptions, iGroupIdx, llInstanceID) == 0);
+	}
 	
 	for (int iGroupIdx = 0; iGroupIdx < iGroupCount; iGroupIdx++)
 	{
@@ -255,4 +260,5 @@ TEST(MultiDatabase, Set_Get_MasterVariables)
 		EXPECT_TRUE(sBuffer == sGetBuffer);
 	}
 }
+
 

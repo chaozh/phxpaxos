@@ -170,7 +170,10 @@ int Proposer :: NewValue(const std::string & sValue)
 {
     BP->GetProposerBP()->NewProposal(sValue);
 
-    m_oProposerState.SetValue(sValue);
+    if (m_oProposerState.GetValue().size() == 0)
+    {
+        m_oProposerState.SetValue(sValue);
+    }
 
     m_iLastPrepareTimeoutMs = START_PREPARE_TIMEOUTMS;
     m_iLastAcceptTimeoutMs = START_ACCEPT_TIMEOUTMS;
@@ -321,14 +324,14 @@ void Proposer :: OnPrepareReply(const PaxosMsg & oPaxosMsg)
     if (!m_bIsPreparing)
     {
         BP->GetProposerBP()->OnPrepareReplyButNotPreparing();
-        PLGErr("Not preparing, skip this msg");
+        //PLGErr("Not preparing, skip this msg");
         return;
     }
 
     if (oPaxosMsg.proposalid() != m_oProposerState.GetProposalID())
     {
         BP->GetProposerBP()->OnPrepareReplyNotSameProposalIDMsg();
-        PLGErr("ProposalID not same, skip this msg");
+        //PLGErr("ProposalID not same, skip this msg");
         return;
     }
 
@@ -337,22 +340,16 @@ void Proposer :: OnPrepareReply(const PaxosMsg & oPaxosMsg)
     if (oPaxosMsg.rejectbypromiseid() == 0)
     {
         BallotNumber oBallot(oPaxosMsg.preacceptid(), oPaxosMsg.preacceptnodeid());
-
         PLGDebug("[Promise] PreAcceptedID %lu PreAcceptedNodeID %lu ValueSize %zu", 
                 oPaxosMsg.preacceptid(), oPaxosMsg.preacceptnodeid(), oPaxosMsg.value().size());
-        
         m_oMsgCounter.AddPromiseOrAccept(oPaxosMsg.nodeid());
-
         m_oProposerState.AddPreAcceptValue(oBallot, oPaxosMsg.value());
     }
     else
     {
         PLGDebug("[Reject] RejectByPromiseID %lu", oPaxosMsg.rejectbypromiseid());
-        
         m_oMsgCounter.AddReject(oPaxosMsg.nodeid());
-
         m_bWasRejectBySomeone = true;
-
         m_oProposerState.SetOtherProposalID(oPaxosMsg.rejectbypromiseid());
     }
 
@@ -369,10 +366,20 @@ void Proposer :: OnPrepareReply(const PaxosMsg & oPaxosMsg)
     {
         BP->GetProposerBP()->PrepareNotPass();
         PLGImp("[Not Pass] wait 30ms and restart prepare");
-        AddPrepareTimer(30);
+        AddPrepareTimer(OtherUtils::FastRand() % 30 + 10);
     }
 
     PLGHead("END");
+}
+
+void Proposer :: OnExpiredPrepareReply(const PaxosMsg & oPaxosMsg)
+{
+    if (oPaxosMsg.rejectbypromiseid() != 0)
+    {
+        PLGDebug("[Expired Prepare Reply Reject] RejectByPromiseID %lu", oPaxosMsg.rejectbypromiseid());
+        m_bWasRejectBySomeone = true;
+        m_oProposerState.SetOtherProposalID(oPaxosMsg.rejectbypromiseid());
+    }
 }
 
 void Proposer :: Accept()
@@ -413,15 +420,15 @@ void Proposer :: OnAcceptReply(const PaxosMsg & oPaxosMsg)
 
     if (!m_bIsAccepting)
     {
-        PLGErr("Not proposing, skip this msg");
+        //PLGErr("Not proposing, skip this msg");
         BP->GetProposerBP()->OnAcceptReplyButNotAccepting();
         return;
     }
 
     if (oPaxosMsg.proposalid() != m_oProposerState.GetProposalID())
     {
+        //PLGErr("ProposalID not same, skip this msg");
         BP->GetProposerBP()->OnAcceptReplyNotSameProposalIDMsg();
-        PLGErr("ProposalID not same, skip this msg");
         return;
     }
 
@@ -455,10 +462,20 @@ void Proposer :: OnAcceptReply(const PaxosMsg & oPaxosMsg)
     {
         BP->GetProposerBP()->AcceptNotPass();
         PLGImp("[Not pass] wait 30ms and Restart prepare");
-        AddAcceptTimer(30);
+        AddAcceptTimer(OtherUtils::FastRand() % 30 + 10);
     }
 
     PLGHead("END");
+}
+
+void Proposer :: OnExpiredAcceptReply(const PaxosMsg & oPaxosMsg)
+{
+    if (oPaxosMsg.rejectbypromiseid() != 0)
+    {
+        PLGDebug("[Expired Accept Reply Reject] RejectByPromiseID %lu", oPaxosMsg.rejectbypromiseid());
+        m_bWasRejectBySomeone = true;
+        m_oProposerState.SetOtherProposalID(oPaxosMsg.rejectbypromiseid());
+    }
 }
 
 void Proposer :: OnPrepareTimeout()
@@ -499,4 +516,5 @@ void Proposer :: CancelSkipPrepare()
 }
 
 }
+
 

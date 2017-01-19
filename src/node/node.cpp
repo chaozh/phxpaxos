@@ -31,6 +31,8 @@ int Node :: RunNode(const Options & oOptions, Node *& poNode)
     {
         InsideOptions::Instance()->SetAsLargeBufferMode();
     }
+    
+    InsideOptions::Instance()->SetGroupCount(oOptions.iGroupCount);
         
     poNode = nullptr;
     NetWork * poNetWork = nullptr;
@@ -42,6 +44,7 @@ int Node :: RunNode(const Options & oOptions, Node *& poNode)
     int ret = poRealNode->Init(oOptions, poNetWork);
     if (ret != 0)
     {
+        delete poRealNode;
         return ret;
     }
 
@@ -61,4 +64,5 @@ int Node :: RunNode(const Options & oOptions, Node *& poNode)
 }
     
 }
+
 

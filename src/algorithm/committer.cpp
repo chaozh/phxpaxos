@@ -30,6 +30,7 @@ namespace phxpaxos
 Committer :: Committer(Config * poConfig, CommitCtx * poCommitCtx, IOLoop * poIOLoop, SMFac * poSMFac)
     : m_poConfig(poConfig), m_poCommitCtx(poCommitCtx), m_poIOLoop(poIOLoop), m_poSMFac(poSMFac), m_iTimeoutMs(-1)
 {
+    m_llLastLogTime = Time::GetSteadyClockMS();
 }
 
 Committer :: ~Committer()
@@ -39,15 +40,15 @@ Committer :: ~Committer()
 int Committer :: NewValue(const std::string & sValue)
 {
     uint64_t llInstanceID = 0;
-    return NewValueGetID(sValue, llInstanceID, nullptr, nullptr);
+    return NewValueGetID(sValue, llInstanceID, nullptr);
 }
 
 int Committer :: NewValueGetID(const std::string & sValue, uint64_t & llInstanceID)
 {
-    return NewValueGetID(sValue, llInstanceID, nullptr, nullptr);
+    return NewValueGetID(sValue, llInstanceID, nullptr);
 }
 
-int Committer :: NewValueGetID(const std::string & sValue, uint64_t & llInstanceID, StateMachine * poSM, SMCtx * poSMCtx)
+int Committer :: NewValueGetID(const std::string & sValue, uint64_t & llInstanceID, SMCtx * poSMCtx)
 {
     BP->GetCommiterBP()->NewValue();
 
@@ -58,7 +59,7 @@ int Committer :: NewValueGetID(const std::string & sValue, uint64_t & llInstance
         TimeStat oTimeStat;
         oTimeStat.Point();
 
-        ret = NewValueGetIDNoRetry(sValue, llInstanceID, poSM, poSMCtx);
+        ret = NewValueGetIDNoRetry(sValue, llInstanceID, poSMCtx);
         if (ret != PaxosTryCommitRet_Conflict)
         {
             if (ret == 0)
@@ -84,23 +85,33 @@ int Committer :: NewValueGetID(const std::string & sValue, uint64_t & llInstance
     return ret;
 }
 
-int Committer :: NewValueGetIDNoRetry(const std::string & sValue, uint64_t & llInstanceID, 
-        StateMachine * poSM, SMCtx * poSMCtx)
+int Committer :: NewValueGetIDNoRetry(const std::string & sValue, uint64_t & llInstanceID, SMCtx * poSMCtx)
 {
+    LogStatus();
+
     int iLockUseTimeMs = 0;
     bool bHasLock = m_oWaitLock.Lock(m_iTimeoutMs, iLockUseTimeMs);
     if (!bHasLock)
     {
-        BP->GetCommiterBP()->NewValueGetLockTimeout();
-        PLGErr("Try get lock, but timeout, lockusetime %dms", iLockUseTimeMs);
-        return PaxosTryCommitRet_Timeout; 
+        if (iLockUseTimeMs > 0)
+        {
+            BP->GetCommiterBP()->NewValueGetLockTimeout();
+            PLGErr("Try get lock, but timeout, lockusetime %dms", iLockUseTimeMs);
+            return PaxosTryCommitRet_Timeout; 
+        }
+        else
+        {
+            BP->GetCommiterBP()->NewValueGetLockReject();
+            PLGErr("Try get lock, but too many thread waiting, reject");
+            return PaxosTryCommitRet_TooManyThreadWaiting_Reject;
+        }
     }
 
     int iLeftTimeoutMs = -1;
     if (m_iTimeoutMs > 0)
     {
         iLeftTimeoutMs = m_iTimeoutMs > iLockUseTimeMs ? m_iTimeoutMs - iLockUseTimeMs : 0;
-        if (iLeftTimeoutMs < 100)
+        if (iLeftTimeoutMs < 200)
         {
             PLGErr("Get lock ok, but lockusetime %dms too long, lefttimeout %dms", iLockUseTimeMs, iLeftTimeoutMs);
 
@@ -116,16 +127,12 @@ int Committer :: NewValueGetIDNoRetry(const std::string & sValue, uint64_t & llI
     BP->GetCommiterBP()->NewValueGetLockOK(iLockUseTimeMs);
 
     //pack smid to value
-    int iSMID = poSM != nullptr ? poSM->SMID() : 0;
-    if (iSMID == 0)
-    {
-        iSMID = poSMCtx != nullptr ? poSMCtx->m_iSMID : 0;
-    }
+    int iSMID = poSMCtx != nullptr ? poSMCtx->m_iSMID : 0;
     
     string sPackSMIDValue = sValue;
     m_poSMFac->PackPaxosValue(sPackSMIDValue, iSMID);
 
-    m_poCommitCtx->NewCommit(&sPackSMIDValue, poSM, poSMCtx, iLeftTimeoutMs);
+    m_poCommitCtx->NewCommit(&sPackSMIDValue, poSMCtx, iLeftTimeoutMs);
     m_poIOLoop->AddNotify();
 
     int ret = m_poCommitCtx->GetResult(llInstanceID);
@@ -140,6 +147,32 @@ void Committer :: SetTimeoutMs(const int iTimeoutMs)
 {
     m_iTimeoutMs = iTimeoutMs;
 }
+
+void Committer :: SetMaxHoldThreads(const int iMaxHoldThreads)
+{
+    m_oWaitLock.SetMaxWaitLogCount(iMaxHoldThreads);
+}
+
+void Committer :: SetProposeWaitTimeThresholdMS(const int iWaitTimeThresholdMS)
+{
+    m_oWaitLock.SetLockWaitTimeThreshold(iWaitTimeThresholdMS);
+}
+
+////////////////////////////////////////////////////
+
+void Committer :: LogStatus()
+{
+    uint64_t llNowTime = Time::GetSteadyClockMS();
+    if (llNowTime > m_llLastLogTime
+            && llNowTime - m_llLastLogTime > 1000)
+    {
+        m_llLastLogTime = llNowTime;
+        PLGStatus("wait threads %d avg thread wait ms %d reject rate %d",
+                m_oWaitLock.GetNowHoldThreadCount(), m_oWaitLock.GetNowAvgThreadWaitTime(),
+                m_oWaitLock.GetNowRejectRate());
+    }
+}
     
 }
+
 

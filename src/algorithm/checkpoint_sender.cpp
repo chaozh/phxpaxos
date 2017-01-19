@@ -47,6 +47,7 @@ CheckpointSender :: CheckpointSender(
 {
     m_bIsEnded = false;
     m_bIsEnd = false;
+    m_bIsStarted = false;
     m_llUUID = (m_poConfig->GetMyNodeID() ^ m_poLearner->GetInstanceID()) + OtherUtils::FastRand();
     m_llSequence = 0;
 
@@ -60,7 +61,7 @@ CheckpointSender :: ~CheckpointSender()
 
 void CheckpointSender :: Stop()
 {
-    if (!m_bIsEnded)
+    if (m_bIsStarted && !m_bIsEnded)
     {
         m_bIsEnd = true;
         join();
@@ -79,7 +80,8 @@ const bool CheckpointSender :: IsEnd() const
 
 void CheckpointSender :: run()
 {
-    m_llAbsLastAckTime = Time::GetTimestampMS();
+    m_bIsStarted = true;
+    m_llAbsLastAckTime = Time::GetSteadyClockMS();
 
     //pause checkpoint replayer
     bool bNeedContinue = false;
@@ -255,7 +257,7 @@ int CheckpointSender :: SendFile(const StateMachine * poSM, const std::string & 
         return -1;
     }
 
-    size_t iReadLen = 0;
+    ssize_t iReadLen = 0;
     size_t llOffset = 0;
     while (true)
     {
@@ -263,6 +265,12 @@ int CheckpointSender :: SendFile(const StateMachine * poSM, const std::string & 
         if (iReadLen == 0)
         {
             break;
+        }
+
+        if (iReadLen < 0)
+        {
+            close(iFD);
+            return -1;
         }
 
         int ret = SendBuffer(poSM->SMID(), poSM->GetCheckpointInstanceID(m_poConfig->GetMyGroupIdx()), 
@@ -273,9 +281,9 @@ int CheckpointSender :: SendFile(const StateMachine * poSM, const std::string & 
             return ret;
         }
 
-        PLGDebug("Send ok, offset %zu readlen %zu", llOffset, iReadLen);
+        PLGDebug("Send ok, offset %zu readlen %d", llOffset, iReadLen);
 
-        if (iReadLen < sizeof(m_sTmpBuffer))
+        if (iReadLen < (ssize_t)sizeof(m_sTmpBuffer))
         {
             break;
         }
@@ -351,14 +359,14 @@ void CheckpointSender :: Ack(const nodeid_t iSendNodeID, const uint64_t llUUID, 
     }
 
     m_llAckSequence++;
-    m_llAbsLastAckTime = Time::GetTimestampMS();
+    m_llAbsLastAckTime = Time::GetSteadyClockMS();
 }
 
 const bool CheckpointSender :: CheckAck(const uint64_t llSendSequence)
 {
     while (llSendSequence > m_llAckSequence + Checkpoint_ACK_LEAD)
     {
-        uint64_t llNowTime = Time::GetTimestampMS();
+        uint64_t llNowTime = Time::GetSteadyClockMS();
         uint64_t llPassTime = llNowTime > m_llAbsLastAckTime ? llNowTime - m_llAbsLastAckTime : 0;
 
         if (m_bIsEnd)
@@ -381,4 +389,5 @@ const bool CheckpointSender :: CheckAck(const uint64_t llSendSequence)
 }
     
 }
+
 

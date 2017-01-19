@@ -21,6 +21,7 @@ See the AUTHORS file for names of contributors.
 
 #pragma once
 
+#include <mutex>
 #include "phxpaxos/log.h"
 #include "utils_include.h"
 #include <string>
@@ -31,6 +32,8 @@ namespace phxpaxos
 #define LOGGER (Logger::Instance())
 #define LOG_ERROR(format, args...)\
        LOGGER->LogError(format, ## args);
+#define LOG_STATUS(format, args...)\
+       LOGGER->LogStatus(format, ## args);
 #define LOG_WARNING(format, args...)\
        LOGGER->LogWarning(format, ## args);
 #define LOG_INFO(format, args...)\
@@ -52,6 +55,8 @@ public:
 
     void LogError(const char * pcFormat, ...);
 
+    void LogStatus(const char * pcFormat, ...);
+
     void LogWarning(const char * pcFormat, ...);
     
     void LogInfo(const char * pcFormat, ...);
@@ -59,9 +64,9 @@ public:
     void LogVerbose(const char * pcFormat, ...);
 
 private:
-    LogLevel m_eLogLevel;
     LogFunc m_pLogFunc;
-    Mutex m_oMutex;
+    LogLevel m_eLogLevel;
+    std::mutex m_oMutex;
 };
     
 }

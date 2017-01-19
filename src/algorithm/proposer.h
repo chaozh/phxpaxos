@@ -94,9 +94,13 @@ public:
 
     void OnPrepareReply(const PaxosMsg & oPaxosMsg);
 
+    void OnExpiredPrepareReply(const PaxosMsg & oPaxosMsg);
+
     void Accept();
 
     void OnAcceptReply(const PaxosMsg & oPaxosMsg);
+
+    void OnExpiredAcceptReply(const PaxosMsg & oPaxosMsg);
 
     void OnPrepareTimeout();
 
@@ -121,8 +125,6 @@ public:
 
     bool m_bIsPreparing;
     bool m_bIsAccepting;
-
-    bool m_bIMLeader;
 
     IOLoop * m_poIOLoop;
 
