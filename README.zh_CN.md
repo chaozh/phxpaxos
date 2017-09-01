@@ -8,7 +8,7 @@
 
 联系我们：phxteam@tencent.com
 
-想了解更多, 以及更详细的编译手册，请进入[中文WIKI](https://github.com/tencent-wechat/phxpaxos/wiki)，和扫描右侧二维码关注我们的公众号
+想了解更多, 以及更详细的编译手册，请进入[中文WIKI](https://github.com/Tencent/phxpaxos/wiki)，和扫描右侧二维码关注我们的公众号
 
 [关于实现的一些原理细节](http://mp.weixin.qq.com/s?__biz=MzI4NDMyNTU2Mw==&mid=2247483695&idx=1&sn=91ea422913fc62579e020e941d1d059e#rd)
 
@@ -46,16 +46,19 @@
     请求写入并发：100个线程
     
 ### 性能测试结果(qps)
+> 请求延时小于10ms.
 ###### 写入小数据(100B)
-    1个实例： 1171
-    20个实例： 11931
-    50个实例： 13424
-    100个实例： 13962
+    1个Group： 1171
+    20个Group： 11931
+    50个Group： 13424
+    100个Group： 13962
 ###### 写入大数据(100KB)
-    1个实例： 280
-    20个实例： 984
-    50个实例： 1054
-    100个实例： 1067
+    1个Group： 280
+    20个Group： 984
+    50个Group： 1054
+    100个Group： 1067
+###### BatchPropose(2KB)
+    100个Group: 150000
 
 # 代码目录介绍
 **include**目录包含了使用PhxPaxos所需要用到的所有头文件，您需要理解这些头文件的所有类函数的含义，才能正确的使用PhxPaxos。
